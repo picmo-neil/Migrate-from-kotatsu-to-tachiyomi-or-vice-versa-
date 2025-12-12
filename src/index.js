@@ -12,15 +12,11 @@ const OUTPUT_DIR = 'output';
 const PROTO_FILE = path.join(__dirname, 'schema.proto');
 const EXTENSIONS_URL = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json';
 
-// Ensure output dir exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-// Maps
 const NAME_TO_ID = {};
 const ID_TO_NAME = {};
-
-// --- REVERSE ENGINEERED CONSTANTS ---
-const ID_SEED = 1125899906842597n; // from kotatsu.helpers
+const ID_SEED = 1125899906842597n; // Kotatsu ID Seed
 
 // --- Helper: Fetch Extension Data ---
 function fetchExtensions() {
@@ -54,8 +50,6 @@ function processExtensionData(data) {
                 const idStr = String(source.id);
                 ID_TO_NAME[idStr] = source.name;
                 NAME_TO_ID[source.name.toLowerCase()] = idStr;
-                
-                // Helper for "Tachiyomi: Name" -> "Name"
                 if (ext.name.startsWith("Tachiyomi: ")) {
                     const cleanName = ext.name.replace("Tachiyomi: ", "");
                     if (!NAME_TO_ID[cleanName.toLowerCase()]) {
@@ -80,21 +74,17 @@ function processExtensionData(data) {
 function getKotatsuId(str) {
     let h = ID_SEED;
     for (let i = 0; i < str.length; i++) {
-        // h = np.add(np.multiply(np.int64(31), h), np.int64(ord(c)))
         h = (31n * h + BigInt(str.charCodeAt(i)));
-        // Simulate int64 signed wrapping
-        h = BigInt.asIntN(64, h);
+        h = BigInt.asIntN(64, h); // Simulate int64 signed wrapping
     }
-    return h; // Returns BigInt
+    return h;
 }
 
 // --- Logic from convert/core.py ---
-
 function toKotatsuSource(tySource) {
     if (!tySource) return "";
     if (tySource === "Mangakakalot") return "MANGAKAKALOTTV";
     if (tySource === "Comick") return "COMICK_FUN";
-    // Python: return ty_source.upper()
     return tySource.toUpperCase(); 
 }
 
@@ -127,9 +117,6 @@ function toKotatsuStatus(tyStatus) {
     return "";
 }
 
-// --- Helper: BigInt JSON Serializer ---
-// Kotatsu expects raw numbers for IDs in JSON (even if 64-bit).
-// JS JSON.stringify fails on BigInt. We must output raw number tokens.
 function stringifyWithBigInt(obj) {
     const placeholderPrefix = "BIGINT::";
     const json = JSON.stringify(obj, (key, value) => {
@@ -138,9 +125,11 @@ function stringifyWithBigInt(obj) {
         }
         return value;
     });
-    // Remove quotes around BigInt placeholders
     return json.replace(new RegExp(`"${placeholderPrefix}(-?\\d+)"`, 'g'), '$1');
 }
+
+// --- Safety Helper ---
+const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) ? String(s) : "";
 
 // --- Main Logic ---
 
@@ -161,8 +150,6 @@ async function main() {
   }
 }
 
-// --- Converters ---
-
 async function kotatsuToTachiyomi(BackupMessage) {
     console.log('🔄 Mode: Kotatsu -> Tachiyomi');
     
@@ -173,11 +160,9 @@ async function kotatsuToTachiyomi(BackupMessage) {
     let categoriesData = null;
     let historyData = null;
 
-    // Scan for files (Kotatsu has no extension for internal files)
     for (const entry of zipEntries) {
         if (entry.isDirectory) continue;
         const name = entry.entryName;
-        
         try {
             if (name === 'favourites' || name === 'favourites.json') {
                 favouritesData = JSON.parse(entry.getData().toString('utf8'));
@@ -194,12 +179,12 @@ async function kotatsuToTachiyomi(BackupMessage) {
 
     if (!favouritesData) throw new Error("Could not find favourites data in Kotatsu backup.");
 
-    // Map Categories
     const catIdMap = new Map();
     const backupCategories = [];
     if (categoriesData) {
         categoriesData.forEach((cat, idx) => {
-            backupCategories.push({ name: cat.name, order: cat.sortKey || idx, flags: 0 });
+            const name = cleanStr(cat.name);
+            backupCategories.push({ name: name, order: cat.sortKey || idx, flags: 0 });
             catIdMap.set(cat.id, cat.sortKey || idx);
         });
     }
@@ -207,53 +192,43 @@ async function kotatsuToTachiyomi(BackupMessage) {
     const backupManga = [];
     const backupSources = [];
     const sourceSet = new Set();
+    const historyMap = new Map(); 
 
-    console.log(`📚 Processing ${favouritesData.length} favorites...`);
-
-    // Also map History
-    // Kotatsu history is a list of HistoryRecord
-    const historyMap = new Map(); // Kotatsu ID -> History Object
     if (historyData) {
         historyData.forEach(h => {
-             // h.mangaId matches the manga's generated ID
              historyMap.set(h.mangaId, h);
         });
     }
 
+    console.log(`📚 Processing ${favouritesData.length} favorites...`);
+
     favouritesData.forEach(fav => {
-        // Kotatsu 7+ structure: favorites contains 'manga' object
         const kManga = fav.manga;
         if (!kManga) return;
 
-        // Reverse map Source ID (if possible)
-        // Since we only have NAME_TO_ID (name -> id), we try to find it.
-        // Kotatsu source names are UPPERCASE (MANGADEX).
-        // We will try to match casing if possible, otherwise hash.
         let tSourceId = "0";
-        if (NAME_TO_ID[kManga.source.toLowerCase()]) {
-            tSourceId = NAME_TO_ID[kManga.source.toLowerCase()];
+        const sourceName = cleanStr(kManga.source);
+        if (NAME_TO_ID[sourceName.toLowerCase()]) {
+            tSourceId = NAME_TO_ID[sourceName.toLowerCase()];
         } else {
-            // Fallback hash if source unknown
-            tSourceId = getSourceId(kManga.source); 
+            tSourceId = getSourceId(sourceName); 
         }
 
         if (!sourceSet.has(tSourceId)) {
             sourceSet.add(tSourceId);
-            backupSources.push({ sourceId: tSourceId, name: kManga.source });
+            backupSources.push({ sourceId: tSourceId, name: sourceName });
         }
 
-        // Convert History
         const historyList = [];
         if (historyMap.has(kManga.id)) {
             const h = historyMap.get(kManga.id);
             historyList.push({
-                url: kManga.url,
-                lastRead: h.updated_at || h.created_at,
+                url: cleanStr(kManga.url),
+                lastRead: Number(h.updated_at || h.created_at) || Date.now(),
                 readDuration: 0
             });
         }
 
-        // Convert Categories
         const cats = [];
         if (fav.category_id !== undefined && catIdMap.has(fav.category_id)) {
             cats.push(catIdMap.get(fav.category_id));
@@ -261,18 +236,17 @@ async function kotatsuToTachiyomi(BackupMessage) {
 
         backupManga.push({
             source: tSourceId,
-            url: kManga.url,
-            title: kManga.title,
-            artist: "",
-            author: kManga.author || "",
-            description: "",
-            genre: kManga.tags || [],
-            status: kManga.state === "ONGOING" ? 1 : 2, // Basic map
-            thumbnailUrl: kManga.cover_url || "",
-            dateAdded: fav.created_at || Date.now(),
-            // Kotatsu backup "favourites.json" typically does not include the chapter list.
-            // Tachiyomi will fetch chapters upon refresh.
-            chapters: [], 
+            url: cleanStr(kManga.url),
+            title: cleanStr(kManga.title),
+            artist: cleanStr(kManga.artist),
+            author: cleanStr(kManga.author),
+            description: cleanStr(kManga.description),
+            genre: (Array.isArray(kManga.tags) ? kManga.tags : []).map(t => cleanStr(t)),
+            status: kManga.state === "ONGOING" ? 1 : 2,
+            thumbnailUrl: cleanStr(kManga.cover_url),
+            dateAdded: Number(fav.created_at) || Date.now(),
+            viewer: 0,
+            chapters: [],
             categories: cats,
             history: historyList
         });
@@ -299,63 +273,54 @@ async function tachiyomiToKotatsu(BackupMessage) {
     const favorites = [];
     const history = [];
 
-    // Helper: Find Source Name
     const getSrcName = (id) => {
         if (tachiData.backupSources) {
             const s = tachiData.backupSources.find(x => String(x.sourceId) === String(id));
             if (s) return s.name;
         }
-        return getSourceName(id); // Fallback to ID map
+        return getSourceName(id);
     };
 
     const mangaList = tachiData.backupManga || [];
     console.log(`📚 Processing ${mangaList.length} manga...`);
 
     mangaList.forEach((tm, i) => {
-        const tySource = getSrcName(tm.source);
+        const tySource = cleanStr(getSrcName(tm.source));
         const kSource = toKotatsuSource(tySource);
-        
-        const kUrl = toKotatsuUrl(tySource, tm.url);
-        const kId = getKotatsuId(kSource + kUrl); // Logic: source + url -> hash
-        
+        const kUrl = toKotatsuUrl(tySource, cleanStr(tm.url));
+        const kId = getKotatsuId(kSource + kUrl); 
         const kPublicUrl = toKotatsuPublicUrl(tySource, kUrl);
         const kStatus = toKotatsuStatus(tm.status);
 
-        // Build Kotatsu Manga Object
         const kManga = {
             id: kId,
-            title: tm.title,
+            title: cleanStr(tm.title),
             alt_title: null,
             url: kUrl,
             public_url: kPublicUrl,
             rating: -1.0,
-            nsfw: false, // Default
-            cover_url: tm.thumbnailUrl || "",
+            nsfw: false,
+            cover_url: cleanStr(tm.thumbnailUrl),
             large_cover_url: null,
             state: kStatus,
-            author: tm.author || "",
+            author: cleanStr(tm.author),
             source: kSource,
-            tags: tm.genre || []
+            tags: (tm.genre || []).map(t => cleanStr(t))
         };
 
-        // Build Favorites Entry
-        // category_id: default to 0 if none
         const kFav = {
             manga_id: kId,
             category_id: (tm.categories && tm.categories.length > 0) ? (tm.categories[0] + 1) : 0,
             sort_key: 0,
             created_at: Number(tm.dateAdded),
             deleted_at: 0,
-            manga: kManga // EMBEDDED MANGA
+            manga: kManga
         };
         favorites.push(kFav);
 
-        // Build History Record
         if (tm.chapters && tm.chapters.length > 0) {
-            // Find read chapters
             let latest = null;
             let newest = null;
-            
             tm.chapters.forEach(ch => {
                 if (ch.read) {
                     if (!latest || ch.chapterNumber > latest.chapterNumber) latest = ch;
@@ -364,9 +329,8 @@ async function tachiyomiToKotatsu(BackupMessage) {
             });
 
             if (latest) {
-                const chUrl = toKotatsuChapterUrl(tySource, latest.url);
+                const chUrl = toKotatsuChapterUrl(tySource, cleanStr(latest.url));
                 const chId = getKotatsuId(kSource + chUrl);
-                
                 const percent = (newest && newest.chapterNumber > 0) 
                     ? (latest.chapterNumber / newest.chapterNumber) 
                     : 0;
@@ -374,12 +338,12 @@ async function tachiyomiToKotatsu(BackupMessage) {
                 const kHist = {
                     manga_id: kId,
                     created_at: Number(tm.dateAdded),
-                    updated_at: Number(tm.dateAdded), // or read date
+                    updated_at: Number(tm.dateAdded),
                     chapter_id: chId,
                     page: latest.lastPageRead || 0,
                     scroll: 0,
                     percent: percent,
-                    manga: kManga // EMBEDDED MANGA
+                    manga: kManga
                 };
                 history.push(kHist);
             }
@@ -387,23 +351,17 @@ async function tachiyomiToKotatsu(BackupMessage) {
     });
 
     const zip = new AdmZip();
-    
-    // Kotatsu uses files named 'favourites' and 'history' WITHOUT .json extension
-    // And it uses raw numbers for BigInts
     const favJson = stringifyWithBigInt(favorites);
     const histJson = stringifyWithBigInt(history);
 
     zip.addFile("favourites", Buffer.from(favJson, "utf8"));
     zip.addFile("history", Buffer.from(histJson, "utf8"));
     
-    // Note: 'categories' file is not strictly required for restore if IDs match existing or default
-    
     const outFile = path.join(OUTPUT_DIR, 'converted_kotatsu.zip');
     zip.writeZip(outFile);
     console.log(`✅ Success! Created: ${outFile}`);
 }
 
-// Helper needed for reverse map if missing
 function getSourceId(sourceName) {
   if (!sourceName) return "0";
   const lower = sourceName.toLowerCase();
