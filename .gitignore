@@ -1,0 +1,7 @@
+node_modules/
+*.log
+output/
+.DS_Store
+# Don't ignore backups so you can upload them
+!Backup.zip
+!Backup.tachibk
