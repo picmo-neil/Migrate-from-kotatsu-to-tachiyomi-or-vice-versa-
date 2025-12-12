@@ -13,15 +13,22 @@ const PROTO_FILE = path.join(__dirname, 'schema.proto');
 // Ensure output dir exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
+// Known mappings to Official Tachiyomi Extension IDs
 const SOURCE_MAPPINGS = {
   'MangaDex': 2499283573021220255n,
   'Manganato': 7367807421835334005n,
+  'Mangakakalot': 2697072491176462740n,
+  'Bato.to': 7586203134676161474n,
+  'MangaSee': 4462085750100414706n
 };
 
 // --- Helpers ---
 
 function getSourceId(sourceName) {
+  if (!sourceName) return 0n; // Local source
   if (SOURCE_MAPPINGS[sourceName]) return SOURCE_MAPPINGS[sourceName];
+  
+  // Fallback: Generate a deterministic hash for unknown sources
   let hash = 0n;
   for (let i = 0; i < sourceName.length; i++) {
     hash = (hash << 5n) - hash + BigInt(sourceName.charCodeAt(i));
@@ -31,16 +38,25 @@ function getSourceId(sourceName) {
 }
 
 function getSourceName(sourceId) {
-  // Reverse lookup or best guess
+  // Safe comparison: convert everything to string to match BigInts, Numbers, or Strings
+  const targetId = String(sourceId);
   for (const [name, id] of Object.entries(SOURCE_MAPPINGS)) {
-    if (id === sourceId) return name;
+    if (String(id) === targetId) return name;
   }
-  return `Source_${sourceId}`;
+  return `Source_${targetId}`;
+}
+
+function safeDate(val) {
+  if (!val) return Date.now();
+  // Handle if Kotatsu gives an ISO string or a timestamp
+  if (typeof val === 'string') return new Date(val).getTime();
+  return Number(val);
 }
 
 // --- Main Logic ---
 
 async function main() {
+  console.log('📦 Loading Protobuf Schema...');
   const root = await protobuf.load(PROTO_FILE);
   const BackupMessage = root.lookupType("tachiyomi.Backup");
 
@@ -49,7 +65,7 @@ async function main() {
   } else if (fs.existsSync(TACHI_INPUT)) {
     await tachiyomiToKotatsu(BackupMessage);
   } else {
-    throw new Error('No backup file found! Please add Backup.zip or Backup.tachibk');
+    throw new Error('❌ No backup file found! Please add Backup.zip or Backup.tachibk to the root.');
   }
 }
 
@@ -63,28 +79,36 @@ async function kotatsuToTachiyomi(BackupMessage) {
 
   for (const entry of zipEntries) {
     if (entry.entryName.endsWith('.json') && !entry.isDirectory) {
-      const json = JSON.parse(entry.getData().toString('utf8'));
-      if (Array.isArray(json) || json.manga || json.favorites) {
-        kotatsuData = json;
-        break;
+      try {
+        const json = JSON.parse(entry.getData().toString('utf8'));
+        // Detect Kotatsu format
+        if (Array.isArray(json) || json.manga || json.favorites) {
+          kotatsuData = json;
+          break;
+        }
+      } catch (e) {
+        console.warn('Skipping invalid JSON:', entry.entryName);
       }
     }
   }
 
-  if (!kotatsuData) throw new Error("Invalid Kotatsu backup");
+  if (!kotatsuData) throw new Error("Invalid Kotatsu backup: No valid JSON found inside zip.");
 
-  const mangaList = Array.isArray(kotatsuData) ? kotatsuData : (kotatsuData.favorites || []);
+  const mangaList = Array.isArray(kotatsuData) ? kotatsuData : (kotatsuData.favorites || kotatsuData.manga || []);
+  console.log(`found ${mangaList.length} manga entries.`);
+
   const backupManga = [];
   const backupCategories = [];
   const categoriesMap = new Map();
+  const usedSources = new Map(); // ID -> Name mapping for BackupSource
 
   mangaList.forEach((kManga) => {
-    // Categories
+    // 1. Process Categories
     const catList = [];
-    if (kManga.categories) {
+    if (Array.isArray(kManga.categories)) {
       kManga.categories.forEach(catName => {
         if (!categoriesMap.has(catName)) {
-          const order = categoriesMap.size + 1;
+          const order = categoriesMap.size + 1; // 1-based index usually
           categoriesMap.set(catName, order);
           backupCategories.push({ name: catName, order: order, flags: 0 });
         }
@@ -92,78 +116,113 @@ async function kotatsuToTachiyomi(BackupMessage) {
       });
     }
 
-    // Chapters
+    // 2. Process Chapters
     const chapters = (kManga.chapters || []).map(kChap => ({
       url: kChap.url || '',
       name: kChap.name || `Chapter ${kChap.number}`,
-      chapterNumber: kChap.number || 0,
-      read: kChap.read || false,
-      dateFetch: Date.now(),
-      dateUpload: kChap.date || Date.now(),
+      scanlator: kChap.scanlator || '',
+      chapterNumber: parseFloat(kChap.number) || 0.0,
+      read: !!kChap.read,
+      bookmark: 0,
+      dateFetch: safeDate(kChap.date), // Fallback to now
+      dateUpload: safeDate(kChap.date),
       sourceOrder: 0
     }));
 
+    // 3. Process Source
+    const sName = kManga.source || 'Local';
+    const sId = getSourceId(sName);
+    usedSources.set(sId, sName);
+
+    // 4. Create Manga Entry
     backupManga.push({
-      source: getSourceId(kManga.source || 'Local'),
+      source: sId,
       url: kManga.url || '',
-      title: kManga.title || 'Unknown',
+      title: kManga.title || 'Unknown Title',
       artist: kManga.artist || '',
       author: kManga.author || '',
       description: kManga.description || '',
-      genre: kManga.genre || [],
+      genre: Array.isArray(kManga.genre) ? kManga.genre : [],
       status: kManga.status === 'ONGOING' ? 1 : kManga.status === 'COMPLETED' ? 2 : 0,
       thumbnailUrl: kManga.thumbnailUrl || '',
       chapters: chapters,
       categories: catList,
+      dateAdded: safeDate(null), 
+      viewer: 0
     });
   });
 
-  const message = BackupMessage.create({ backupManga, backupCategories });
+  // 5. Generate Source List
+  // This helps Tachiyomi recognize the source name even if the extension isn't installed
+  const backupSources = Array.from(usedSources.entries()).map(([id, name]) => ({
+    sourceId: id,
+    name: name
+  }));
+
+  // 6. Encode and Save
+  const payload = { backupManga, backupCategories, backupSources };
+  
+  // Verify against schema to catch type errors early
+  const errMsg = BackupMessage.verify(payload);
+  if (errMsg) throw Error(errMsg);
+
+  const message = BackupMessage.create(payload);
   const buffer = BackupMessage.encode(message).finish();
   const gzipped = zlib.gzipSync(buffer);
   
   const outFile = path.join(OUTPUT_DIR, 'converted_tachiyomi.tachibk');
   fs.writeFileSync(outFile, gzipped);
-  console.log(`✅ Created: ${outFile}`);
+  console.log(`✅ Success! Created: ${outFile}`);
 }
 
 async function tachiyomiToKotatsu(BackupMessage) {
   console.log('🔄 Mode: Tachiyomi -> Kotatsu');
   
   const buffer = fs.readFileSync(TACHI_INPUT);
+  // Tachiyomi backups are Gzipped Protobuf
   const unzipped = zlib.gunzipSync(buffer);
+  
   const message = BackupMessage.decode(unzipped);
-  const tachiData = BackupMessage.toObject(message, { defaults: true });
+  
+  // IMPORTANT: 'longs: String' ensures 64-bit IDs are not corrupted by JS numbers
+  const tachiData = BackupMessage.toObject(message, { defaults: true, longs: String });
+
+  console.log(`Found ${tachiData.backupManga ? tachiData.backupManga.length : 0} manga entries.`);
 
   const kotatsuExport = [];
 
   // Map Categories ID to Name
   const catIdToName = {};
-  if (tachiData.backupCategories) {
+  if (Array.isArray(tachiData.backupCategories)) {
     tachiData.backupCategories.forEach(c => {
-      catIdToName[c.order] = c.name; // Simplification, Tachi logic is complex here
+      catIdToName[c.order] = c.name; 
     });
   }
 
-  tachiData.backupManga.forEach(tm => {
-    const categories = (tm.categories || []).map(id => catIdToName[id] || 'Default');
+  // Iterate Manga
+  const mangaArr = tachiData.backupManga || [];
+  mangaArr.forEach(tm => {
+    // Resolve Categories
+    const categories = (tm.categories || []).map(id => catIdToName[id]).filter(Boolean);
     
+    // Resolve Chapters
     const chapters = (tm.chapters || []).map(tc => ({
       url: tc.url,
       name: tc.name,
-      number: tc.chapterNumber,
+      number: tc.chapterNumber, // Keep as number for Kotatsu JSON
       read: tc.read,
-      date: tc.dateUpload
+      date: tc.dateUpload,
+      scanlator: tc.scanlator
     }));
 
     kotatsuExport.push({
       title: tm.title,
       url: tm.url,
-      source: getSourceName(tm.source),
+      source: getSourceName(tm.source), // Attempt to resolve ID back to Name
       author: tm.author,
       artist: tm.artist,
       description: tm.description,
-      genre: tm.genre,
+      genre: tm.genre || [],
       status: tm.status === 1 ? 'ONGOING' : tm.status === 2 ? 'COMPLETED' : 'UNKNOWN',
       thumbnailUrl: tm.thumbnailUrl,
       chapters: chapters,
@@ -172,11 +231,15 @@ async function tachiyomiToKotatsu(BackupMessage) {
   });
 
   const zip = new AdmZip();
+  // Kotatsu expects a JSON file inside the zip. 
   zip.addFile("backup.json", Buffer.from(JSON.stringify(kotatsuExport, null, 2), "utf8"));
   
   const outFile = path.join(OUTPUT_DIR, 'converted_kotatsu.zip');
   zip.writeZip(outFile);
-  console.log(`✅ Created: ${outFile}`);
+  console.log(`✅ Success! Created: ${outFile}`);
 }
 
-main().catch(console.error);
+main().catch(err => {
+  console.error('❌ FATAL ERROR:', err);
+  process.exit(1);
+});
