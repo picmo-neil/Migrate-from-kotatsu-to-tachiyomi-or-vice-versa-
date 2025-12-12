@@ -1,0 +1,33 @@
+name: Universal Convert
+
+on:
+  push:
+    paths:
+      - 'Backup.zip'
+      - 'Backup.tachibk'
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        use: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Converter
+        run: node src/index.js
+
+      - name: Upload Converted Backup
+        uses: actions/upload-artifact@v3
+        with:
+          name: converted-backup
+          path: output/*
