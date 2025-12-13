@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Kotatsu to Tachiyomi Migration Utility
-Version: 4.4.4 
+Version: 4.4.4 (The Singularity Edition)
 """
 
 import os
+import sys
 import json
 import zipfile
 import gzip
@@ -24,6 +25,9 @@ KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 OUTPUT_FILE = 'Backup.tachibk'
 GH_TOKEN = os.environ.get('GH_TOKEN')
+
+# Ensure standard output uses UTF-8
+sys.stdout.reconfigure(encoding='utf-8')
 
 # --- External Intelligence ---
 KEIYOUSHI_URLS = [
@@ -450,13 +454,16 @@ class VoidProber:
             future_to_item = {ex.submit(self._trace, i['url']): i for i in items}
             for fut in concurrent.futures.as_completed(future_to_item):
                 item = future_to_item[fut]
-                new_url = fut.result()
-                if new_url:
-                    d = StringUtils.clean_domain(new_url)
-                    match = self.intel.domain_map.get(d)
-                    if match and match[0]:
-                     print(f"   -> Redirect Confirmed: {item['source']} -> {match[1]}")
-‎                        self.intel.name_map[StringUtils.normalize(item['source'])] = match
+                try:
+                    new_url = fut.result()
+                    if new_url:
+                        d = StringUtils.clean_domain(new_url)
+‎                        match = self.intel.domain_map.get(d)
+‎                        if match and match[0]:
+‎                            print(f"   -> Redirect Confirmed: {item['source']} -> {match[1]}")
+‎                            self.intel.name_map[StringUtils.normalize(item['source'])] = match
+‎                except Exception:
+‎                    pass
 ‎
 ‎    def _trace(self, url):
 ‎        if not url: return None
