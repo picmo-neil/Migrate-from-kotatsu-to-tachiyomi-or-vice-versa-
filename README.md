@@ -1,12 +1,6 @@
 
-# Manga Migration Kit (Kotatsu <-> Tachiyomi)
+# Manga Migration Kit (Doki/Kotatsu to Tachiyomi/Mihon)
 
-This repository contains an intelligent workflow to convert backup files between **Kotatsu** and **Tachiyomi/Mihon**.
-
-## Features
-*   **Bi-Directional**: Automatically detects input format.
-*   **Kotatsu to Tachiyomi**: Upload `Backup.zip` → Get `.tachibk`
-*   **Tachiyomi to Kotatsu**: Upload `Backup.tachibk` → Get `.zip`
 
 ## 🛠️ How it works
 This repository uses a **GitHub Action** to:
@@ -17,7 +11,5 @@ This repository uses a **GitHub Action** to:
 ## Usage
 1.  **Fork/Copy this Repo**.
 2.  **Upload your Backup**:
-    *   If converting **Kotatsu** -> Name it `Backup.zip`.
-    *   If converting **Tachiyomi** -> Name it `Backup.tachibk`.
 3.  **Run**: Actions -> **Universal Convert**.
 4.  **Download**: The artifact `converted_backup`.
