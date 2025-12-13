@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Kotatsu to Tachiyomi Migration Utility
-Version: 2.0.0
-Description: Maps manga entries from Kotatsu backups to Tachiyomi protobuf format.
+Version: 3.0.0 (Enterprise Architect)
 """
 
 import os
@@ -12,432 +11,397 @@ import gzip
 import struct
 import requests
 import re
+import time
 import difflib
 import concurrent.futures
 from urllib.parse import urlparse
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-# --- Configuration ---
-INPUT_FILE = 'Backup.zip'
+# --- Configuration Constants ---
+KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 OUTPUT_FILE = 'Backup.tachibk'
 GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# --- External Resource Definitions ---
+# --- External Repository Targets ---
 KEIYOUSHI_URLS = [
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.html"
 ]
 
-DOKI_API_ENDPOINT = "https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1"
+DOKI_API = "https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1"
 DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 
-# --- Static Data (Truncated for brevity, represents the internal knowledge base) ---
-# Common TLDs for domain parsing
+# --- Global Domain Knowledge ---
 TLD_LIST = [
-    "com", "net", "org", "io", "co", "to", "me", "gg", "cc", "xyz", "fm", "site", 
-    "club", "live", "world", "app", "dev", "tech", "space", "top", "online", 
-    "info", "biz", "eu", "us", "uk", "ca", "au", "ru", "jp", "br", "es", "fr", 
-    "de", "it", "nl", "pl", "in", "vn", "id", "th", "tw", "cn", "kr", "my", 
-    "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "ve", "ink", "wiki", "moe"
+    "com", "net", "org", "io", "co", "to", "me", "gg", "cc", "xyz", "fm", 
+    "site", "club", "live", "world", "app", "dev", "tech", "space", "top", 
+    "online", "info", "biz", "eu", "us", "uk", "ca", "au", "ru", "jp", "br", 
+    "es", "fr", "de", "it", "nl", "pl", "in", "vn", "id", "th", "tw", "cn", 
+    "kr", "my", "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "ve", "ink"
 ]
 
-# Static mapping for high-priority sources
-STATIC_SOURCE_MAP = {
+STATIC_MAP = {
     "MANGADEX": "mangadex.org", "MANGANATO": "manganato.com", "MANGAKAKALOT": "mangakakalot.com",
     "BATO": "bato.to", "NHENTAI": "nhentai.net", "VIZ": "viz.com", "WEBTOONS": "webtoons.com",
     "TAPAS": "tapas.io", "BILIBILI": "bilibilicomics.com", "MANGASEE": "mangasee123.com",
-    "MANGALIFE": "manga4life.com", "MANGAPARK": "mangapark.net", "ASURA": "asuracomic.net",
-    "FLAME": "flamecomics.com", "REAPER": "reaperscans.com", "LUMINOUS": "luminousscans.com",
-    "LEVIATAN": "leviatanscans.com", "DRAKE": "drakescans.com", "RESET": "reset-scans.com",
-    "XCALIBR": "xcalibrscans.com", "OZUL": "ozulscans.com", "TCB": "tcbscans.com",
-    "VOID": "void-scans.com", "COSMIC": "cosmicscans.com", "SURYA": "suryascans.com"
+    "MANGALIFE": "manga4life.com", "MANGAPARK": "mangapark.net", "KISSMANGA": "kissmanga.org",
+    "MANGAFIRE": "mangafire.to", "READM": "readm.org", "NINEMANGA": "ninemanga.com",
+    "ASURA": "asuracomic.net", "FLAME": "flamecomics.com", "REAPER": "reaperscans.com",
+    "LUMINOUS": "luminousscans.com", "LEVIATAN": "leviatanscans.com", "DRAKE": "drakescans.com",
+    "RESET": "reset-scans.com", "XCALIBR": "xcalibrscans.com", "OZUL": "ozulscans.com",
+    "TCB": "tcbscans.com", "VOID": "void-scans.com", "COSMIC": "cosmicscans.com",
+    "SURYA": "suryascans.com", "MANHUAES": "manhuaes.com", "MANHUAF": "manhuafast.com",
+    "MANHUAG": "manhuagold.com", "MANHWA18": "manhwa18.com", "MANHWA18CC": "manhwa18.cc",
+    "MANHWACLUB": "manhwa18.club", "TOONILY": "toonily.com", "HIOPER": "hiperdex.com"
 }
 
-# --- Utility Classes ---
+# --- Infrastructure ---
 
-class Utils:
+class SystemUtils:
     @staticmethod
     def to_signed_64(val):
-        """Converts an unsigned 64-bit integer to a signed 64-bit integer."""
         try:
             val = int(val)
             return struct.unpack('q', struct.pack('Q', val & 0xFFFFFFFFFFFFFFFF))[0]
-        except Exception:
+        except:
             return 0
 
     @staticmethod
-    def java_string_hashcode(s):
-        """Implements Java's String.hashCode() for ID generation compatibility."""
+    def java_hash(s):
         h = 0
         for c in s:
             h = (31 * h + ord(c)) & 0xFFFFFFFFFFFFFFFF
-        return Utils.to_signed_64(h)
+        return SystemUtils.to_signed_64(h)
 
     @staticmethod
-    def get_domain(url):
-        """Extracts the clean domain from a URL."""
+    def extract_domain(url):
         if not url: return None
         try:
             url = str(url).strip()
-            # Normalize protocol
             clean_url = url if url.startswith('http') else 'https://' + url
             parsed = urlparse(clean_url)
-            domain = parsed.netloc
+            domain = parsed.netloc.lower()
             
-            # Remove common subdomains
-            replacements = ['www.', 'api.', 'v1.', 'm.']
-            for r in replacements:
-                domain = domain.replace(r, '')
+            # Strip common subdomains and prefixes
+            for prefix in ['www.', 'api.', 'v1.', 'm.']:
+                domain = domain.replace(prefix, '')
             
-            # Remove 'v2.', 'v3.' etc
+            # Strip versioned prefixes (v2.site.com -> site.com)
             if domain.startswith('v') and len(domain) > 2 and domain[1].isdigit() and domain[2] == '.':
                 domain = domain[3:]
                 
-            return domain.lower()
-        except Exception:
+            return domain
+        except:
             return None
 
     @staticmethod
-    def normalize_name(name):
-        """Normalizes a source name for comparison."""
+    def normalize_string(name):
         if not name: return ""
         n = name.lower()
         
-        # Remove TLDs if present in name
+        # Remove TLDs from name if present
         for tld in TLD_LIST:
-            suffix = "." + tld
-            if n.endswith(suffix):
-                n = n[:-len(suffix)]
+            if n.endswith('.' + tld):
+                n = n[:-(len(tld)+1)]
                 break
-        
+                
         n = n.upper()
-        # Remove common suffixes
-        suffixes = [" (EN)", " (ID)", " SCANS", " SCAN", " COMICS", " COMIC", " NOVELS", " TEAM", " FANSUB"]
-        for s in suffixes:
-            n = n.replace(s, "")
+        
+        # Remove jargon
+        removals = ["(EN)", "(ID)", "SCANS", "SCAN", "COMICS", "COMIC", "NOVELS", "TEAM", "FANSUB", "WEBTOON", "TRANSLATION"]
+        for r in removals:
+            n = n.replace(r, "")
+            n = n.replace(" " + r, "")
             
-        # Alphanumeric only
+        # Strip non-alphanumeric
         n = re.sub(r'[^A-Z0-9]', '', n)
         return n
 
     @staticmethod
-    def get_http_session():
-        """Creates a resilient HTTP session."""
+    def create_session():
         s = requests.Session()
-        retries = Retry(total=5, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+        retries = Retry(total=10, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
         s.mount('https://', HTTPAdapter(max_retries=retries))
         if GH_TOKEN:
             s.headers.update({'Authorization': f'token {GH_TOKEN}'})
         s.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) MigrationUtil/2.0'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) MigrationAssistant/3.0'
         })
         return s
 
-# --- External Data Fetchers ---
+# --- Intelligence Modules ---
 
-class RegistrySync:
-    def __init__(self, registry):
-        self.registry = registry
-        self.session = Utils.get_http_session()
+class ExternalIntelligence:
+    def __init__(self):
+        self.session = SystemUtils.create_session()
+        self.domain_registry = {}  # domain -> (id, name)
+        self.name_registry = {}    # normalized_name -> (id, name)
+        self.known_ids = set()
 
-    def sync_all(self):
-        print("INFO: Synchronizing external repositories...")
+    def sync(self):
+        print("[System] Synchronizing intelligence databases...")
+        self._load_static_map()
         self._sync_keiyoushi()
-        self._sync_doki_team()
+        self._sync_doki()
+
+    def _load_static_map(self):
+        # We don't have IDs for these yet, but we map domains to names
+        # Later, if the ID is found via sync, it links up. 
+        # If not, the deterministic ID will be consistent based on the mapped name.
+        for name, domain in STATIC_MAP.items():
+            norm = SystemUtils.normalize_string(name)
+            self.name_registry[norm] = (None, name)
+            self.domain_registry[domain] = (None, name)
+
+    def _register(self, sid, name, base_url):
+        if not sid: return
+        
+        signed_id = SystemUtils.to_signed_64(sid)
+        self.known_ids.add(signed_id)
+        
+        entry = (signed_id, name)
+        
+        if base_url:
+            domain = SystemUtils.extract_domain(base_url)
+            if domain:
+                self.domain_registry[domain] = entry
+                # Also register root domain
+                parts = domain.split('.')
+                if len(parts) >= 2:
+                    root = parts[-2] + '.' + parts[-1]
+                    self.domain_registry[root] = entry
+
+        if name:
+            norm = SystemUtils.normalize_string(name)
+            self.name_registry[norm] = entry
 
     def _sync_keiyoushi(self):
         for url in KEIYOUSHI_URLS:
             try:
-                print(f"DEBUG: Fetching {url}...")
+                print(f"[Sync] Querying {url}...")
                 resp = self.session.get(url, timeout=20)
-                if resp.status_code == 200:
-                    if url.endswith('.json'):
-                        self._parse_json(resp.json())
-                    elif url.endswith('.html'):
-                        self._parse_html(resp.text)
-            except Exception as e:
-                print(f"WARN: Failed to fetch {url}: {e}")
-
-    def _parse_json(self, data):
-        for ext in data:
-            for src in ext.get('sources', []):
-                self.registry.register(
-                    sid=src.get('id'),
-                    name=src.get('name'),
-                    base_url=src.get('baseUrl')
-                )
-
-    def _parse_html(self, html):
-        """Scrapes ID and Name from HTML structure."""
-        try:
-            # Matches table rows in repo listing
-            rows = re.findall(r'<tr[^>]*>.*?</tr>', html, flags=re.DOTALL)
-            count = 0
-            for row in rows:
-                name_match = re.search(r'class="name"[^>]*>(.*?)<', row)
-                id_match = re.search(r'data-id="(-?d+)"', row)
+                if resp.status_code != 200: continue
                 
-                if name_match and id_match:
-                    name = name_match.group(1).strip()
-                    sid = int(id_match.group(1))
-                    self.registry.register(sid=sid, name=name)
-                    count += 1
-            print(f"INFO: HTML Parser recovered {count} definitions.")
-        except Exception as e:
-            print(f"WARN: HTML Parsing error: {e}")
+                if url.endswith('.json'):
+                    data = resp.json()
+                    for ext in data:
+                        for src in ext.get('sources', []):
+                            self._register(src.get('id'), src.get('name'), src.get('baseUrl'))
+                            
+                elif url.endswith('.html'):
+                    # HTML Scraping Logic
+                    content = resp.text
+                    rows = re.findall(r'<tr[^>]*>.*?</tr>', content, flags=re.DOTALL)
+                    for row in rows:
+                        name_m = re.search(r'class="name"[^>]*>(.*?)<', row)
+                        id_m = re.search(r'data-id="(-?d+)"', row)
+                        if name_m and id_m:
+                            self._register(int(id_m.group(1)), name_m.group(1).strip(), None)
+                            
+            except Exception as e:
+                print(f"[Warning] Sync failure on {url}: {e}")
 
-    def _sync_doki_team(self):
-        print("INFO: Analyzing DokiTeam Kotlin sources...")
+    def _sync_doki(self):
+        print("[Sync] Analyzing DokiTeam repositories...")
         try:
-            resp = self.session.get(DOKI_API_ENDPOINT, timeout=30)
+            resp = self.session.get(DOKI_API, timeout=30)
             if resp.status_code != 200: return
-
+            
             tree = resp.json().get('tree', [])
             kt_files = [f for f in tree if f['path'].endswith('.kt') and 'src/main/kotlin' in f['path']]
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                futures = {executor.submit(self._fetch_and_parse_kt, f): f for f in kt_files}
-                for future in concurrent.futures.as_completed(futures):
-                    future.result()
-        except Exception as e:
-            print(f"WARN: DokiTeam sync error: {e}")
+                futures = {executor.submit(self._parse_kotlin, f): f for f in kt_files}
+                for _ in concurrent.futures.as_completed(futures):
+                    pass
+        except Exception:
+            pass
 
-    def _fetch_and_parse_kt(self, file_obj):
+    def _parse_kotlin(self, file_obj):
         url = DOKI_RAW_BASE + file_obj['path']
         try:
             resp = self.session.get(url, timeout=10)
             if resp.status_code == 200:
-                self._extract_metadata_from_kt(resp.text, file_obj['path'])
-        except Exception:
+                txt = resp.text
+                # Heuristic parsing
+                id_m = re.search(r'vals+ids*=s*(d+)L?', txt)
+                name_m = re.search(r'vals+names*=s*"([^"]+)"', txt)
+                url_m = re.search(r'vals+baseUrls*=s*"([^"]+)"', txt)
+                
+                sid = int(id_m.group(1)) if id_m else None
+                name = name_m.group(1) if name_m else file_obj['path'].split('/')[-1].replace('.kt','')
+                base = url_m.group(1) if url_m else None
+                
+                if sid: self._register(sid, name, base)
+        except:
             pass
 
-    def _extract_metadata_from_kt(self, content, path):
-        # Heuristic extraction of kotlin properties
-        filename = path.split('/')[-1].replace('.kt', '')
-        
-        # Extract ID
-        id_match = re.search(r'vals+ids*=s*(d+)L?', content)
-        sid = int(id_match.group(1)) if id_match else None
+# --- Matching Engine ---
 
-        # Extract Name
-        name_match = re.search(r'vals+names*=s*"([^"]+)"', content)
-        name = name_match.group(1) if name_match else filename
+class HeuristicEngine:
+    def __init__(self, intelligence):
+        self.intel = intelligence
 
-        # Extract Base URL
-        url_match = re.search(r'vals+baseUrls*=s*"([^"]+)"', content)
-        base_url = url_match.group(1) if url_match else None
+    def identify(self, name, url):
+        # Strategy 1: Exact URL/Domain Match (Highest Confidence)
+        domain = SystemUtils.extract_domain(url)
+        if domain:
+            match = self.intel.domain_registry.get(domain)
+            if match and match[0]: return match
 
-        if sid or base_url:
-            self.registry.register(sid=sid, name=name, base_url=base_url)
+        # Strategy 2: Exact Name Match
+        norm_name = SystemUtils.normalize_string(name)
+        match = self.intel.name_registry.get(norm_name)
+        if match and match[0]: return match
 
-
-# --- Core Logic ---
-
-class SourceRegistry:
-    def __init__(self):
-        self.domain_map = {} # domain -> (id, name)
-        self.name_map = {}   # normalized_name -> (id, name)
-        self.id_cache = set()
-
-    def register(self, sid=None, name=None, base_url=None):
-        if not sid and not base_url: return
-
-        # Ensure ID is signed 64-bit
-        final_id = Utils.to_signed_64(sid) if sid else None
-        
-        # If we only have URL, we can't fully register without ID, 
-        # but we can map domain to a potential future entry
-        domain = Utils.get_domain(base_url)
-        
-        entry = (final_id, name)
-
-        if domain and final_id:
-            self.domain_map[domain] = entry
-        
-        if name and final_id:
-            norm = Utils.normalize_name(name)
-            self.name_map[norm] = entry
+        # Strategy 3: Permutations
+        # Generate variations of the name (e.g., adding/removing 'scans', trying TLDs)
+        candidates = self._generate_permutations(name)
+        for cand in candidates:
+            # Check if permutation is a known domain
+            d_match = self.intel.domain_registry.get(cand)
+            if d_match and d_match[0]: return d_match
             
-        if final_id:
-            self.id_cache.add(final_id)
+            # Check if permutation is a known name
+            n_match = self.intel.name_registry.get(SystemUtils.normalize_string(cand))
+            if n_match and n_match[0]: return n_match
 
-    def resolve_by_domain(self, url):
-        domain = Utils.get_domain(url)
-        if not domain: return None
+        # Strategy 4: Fuzzy Match
+        keys = list(self.intel.name_registry.keys())
+        fuzzy_matches = difflib.get_close_matches(norm_name, keys, n=1, cutoff=0.85)
+        if fuzzy_matches:
+            return self.intel.name_registry[fuzzy_matches[0]]
+
+        # Strategy 5: Deterministic Fallback (Guarantee)
+        # We prefer the mapped name if available, otherwise original
+        final_name = name
+        if match: final_name = match[1] # Use the official name even if we lack ID
         
-        # Exact match
-        if domain in self.domain_map:
-            return self.domain_map[domain]
-            
-        # Root domain match (e.g., www.foo.com -> foo.com)
-        parts = domain.split('.')
-        if len(parts) >= 2:
-            root = parts[-2] + '.' + parts[-1]
-            # This is a weak check, usually requires more robust TLD handling
-            # relying on exact map is safer, but we can try iterating keys
-            pass
-            
-        return None
+        gen_id = SystemUtils.java_hash(final_name)
+        return (gen_id, final_name)
 
-    def resolve_by_name(self, name):
-        norm = Utils.normalize_name(name)
-        if norm in self.name_map:
-            return self.name_map[norm]
-        return None
+    def _generate_permutations(self, name):
+        # Create domain-like variations from the name
+        n = SystemUtils.normalize_string(name).lower()
+        vars = [n, n.replace("scans", "")]
+        perms = []
+        for v in vars:
+            for tld in ['com', 'net', 'org', 'io', 'to']:
+                perms.append(f"{v}.{tld}")
+        return perms
 
-    def fuzzy_resolve(self, name):
-        norm = Utils.normalize_name(name)
-        keys = list(self.name_map.keys())
-        matches = difflib.get_close_matches(norm, keys, n=1, cutoff=0.85)
-        if matches:
-            return self.name_map[matches[0]]
-        return None
+class ConnectivityProber:
+    def __init__(self, intelligence):
+        self.intel = intelligence
+        self.session = SystemUtils.create_session()
 
-class MigrationEngine:
-    def __init__(self):
-        self.registry = SourceRegistry()
-        self.syncer = RegistrySync(self.registry)
-        self.session = Utils.get_http_session()
-
-    def initialize(self):
-        # Load static maps
-        for name, domain in STATIC_SOURCE_MAP.items():
-            # We don't have IDs for static map yet, relying on dynamic sync to fill gaps
-            # or we can hash the name if needed.
-            pass
-            
-        # Run sync
-        self.syncer.sync_all()
-
-    def identify_source(self, source_name, source_url):
-        # 1. URL Domain Match
-        match = self.registry.resolve_by_domain(source_url)
-        if match is not None:
-            return match
-
-        # 2. Exact Name Match
-        match = self.registry.resolve_by_name(source_name)
-        if match is not None:
-            return match
-
-        # 3. Fuzzy Name Match
-        match = self.registry.fuzzy_resolve(source_name)
-        if match is not None:
-            return match
-            
-        # 4. Deterministic Fallback (Guarantee Migration)
-        # If unknown, we generate a stable ID. User can install extension later.
-        gen_id = Utils.java_string_hashcode(source_name)
-        return (gen_id, source_name)
-
-    def probe_redirects(self, items):
-        """Checks unmapped URLs to see if they redirect to known domains."""
-        if not items: return
-        print(f"INFO: Probing {len(items)} unresolved URLs for redirects...")
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_item = {executor.submit(self._head_request, item['url']): item for item in items}
+    def probe(self, items):
+        print(f"[Prober] Investigating {len(items)} unresolved URLs...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            future_to_item = {executor.submit(self._check_redirect, i['url']): i for i in items}
             for future in concurrent.futures.as_completed(future_to_item):
                 item = future_to_item[future]
                 final_url = future.result()
                 if final_url:
-                    # Try to learn
-                    domain = Utils.get_domain(final_url)
-                    match = self.registry.resolve_by_domain(domain)
+                    domain = SystemUtils.extract_domain(final_url)
+                    match = self.intel.domain_registry.get(domain)
                     if match:
-                        # Register the discovery
-                        norm = Utils.normalize_name(item['source'])
-                        self.registry.name_map[norm] = match
+                        # We found a redirect to a known source!
+                        # Update knowledge base dynamically
+                        print(f"   -> Redirect found: {item['source']} -> {match[1]}")
+                        norm = SystemUtils.normalize_string(item['source'])
+                        self.intel.name_registry[norm] = match
 
-    def _head_request(self, url):
+    def _check_redirect(self, url):
+        if not url: return None
         try:
             resp = self.session.head(url, allow_redirects=True, timeout=5)
             return resp.url
-        except Exception:
+        except:
             return None
 
+# --- Main Execution ---
+
 def main():
-    # Verify Imports
+    # Dependency Check
     try:
         import tachiyomi_pb2
     except ImportError:
-        print("CRITICAL: tachiyomi_pb2 module not found. Run protoc compilation.")
-        exit(1)
+        print("❌ Error: tachiyomi_pb2 missing.")
+        return
 
-    if not os.path.exists(INPUT_FILE):
-        print(f"CRITICAL: {INPUT_FILE} not found.")
-        exit(1)
+    if not os.path.exists(KOTATSU_INPUT):
+        print("❌ Error: Input zip not found.")
+        return
 
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    # Init Engine
-    engine = MigrationEngine()
-    engine.initialize()
+    # Initialize Systems
+    intelligence = ExternalIntelligence()
+    intelligence.sync()
+    
+    engine = HeuristicEngine(intelligence)
+    prober = ConnectivityProber(intelligence)
 
-    # Load Data
-    print("INFO: Reading backup file...")
+    # Read Input
+    print("[System] Reading Kotatsu backup...")
     try:
-        with zipfile.ZipFile(INPUT_FILE, 'r') as z:
-            # Find favourites JSON
-            json_file = next((n for n in z.namelist() if 'favourites' in n), None)
-            if not json_file:
-                raise Exception("favourites.json not found in archive")
-            
-            with z.open(json_file) as f:
+        with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+            f_file = next((n for n in z.namelist() if 'favourites' in n), None)
+            if not f_file: raise Exception("No favourites data.")
+            with z.open(f_file) as f:
                 data = json.load(f)
     except Exception as e:
-        print(f"CRITICAL: Failed to read backup zip: {e}")
-        exit(1)
+        print(f"❌ Read Error: {e}")
+        return
 
-    print(f"INFO: Processing {len(data)} manga entries...")
+    print(f"[System] Processing {len(data)} entries...")
 
-    # First Pass: Identify Unknowns
-    unknowns = []
+    # Pre-Analysis (Probing Phase)
+    # Identify items that don't match any known ID or Domain immediately
+    unresolved = []
     for item in data:
         manga = item.get('manga', {})
         url = manga.get('url', '') or manga.get('public_url', '')
         name = manga.get('source', '')
         
-        # Quick check if resolved
-        match = engine.identify_source(name, url)
-        # If the returned ID is just a hash of the name (Fallback), 
-        # we might want to probe url to see if we can find a "Real" extension ID
-        # But determining if it's a fallback ID vs real ID requires checking if ID exists in registry
-        # We simplify: if it's not in domain map, add to probe list
-        domain = Utils.get_domain(url)
-        if domain and domain not in engine.registry.domain_map:
-            unknowns.append({'source': name, 'url': url})
+        # Check if we have a solid match
+        match_id, _ = engine.identify(name, url)
+        
+        # If the ID we generated isn't in our "Known Official IDs" list, it's a fallback or unknown.
+        # We should probe the URL to see if it redirects to a known one.
+        if match_id not in intelligence.known_ids:
+            unresolved.append({'source': name, 'url': url})
 
-    # Probe Redirects
-    if unknowns:
-        engine.probe_redirects(unknowns)
+    if unresolved:
+        prober.probe(unresolved)
 
-    # Build Output
+    # Migration Phase
     backup = tachiyomi_pb2.Backup()
-    registered_sources = set()
-    
+    processed_ids = set()
     success_count = 0
 
     for item in data:
         manga = item.get('manga', {})
         url = manga.get('url', '') or manga.get('public_url', '')
-        src_name = manga.get('source', '')
+        raw_name = manga.get('source', '')
         
-        sid, final_name = engine.identify_source(src_name, url)
+        # Identify
+        sid, name = engine.identify(raw_name, url)
         
-        # Add Source definition if new
-        if sid not in registered_sources:
-            s = tachiyomi_pb2.BackupSource()
-            s.sourceId = sid
-            s.name = final_name
-            backup.backupSources.append(s)
-            registered_sources.add(sid)
+        # Add Source to Backup Registry
+        if sid not in processed_ids:
+            src = tachiyomi_pb2.BackupSource()
+            src.sourceId = sid
+            src.name = name
+            backup.backupSources.append(src)
+            processed_ids.add(sid)
 
-        # Create Manga Entry
+        # Add Manga
         bm = backup.backupManga.add()
         bm.source = sid
         bm.url = url
@@ -448,29 +412,28 @@ def main():
         bm.thumbnailUrl = manga.get('cover_url', '')
         bm.dateAdded = int(item.get('created_at', 0) * 1000) if item.get('created_at') else 0
         
-        # Status Mapping
-        status_str = (manga.get('state') or '').upper()
-        if status_str == 'ONGOING': bm.status = 1
-        elif status_str in ['FINISHED', 'COMPLETED']: bm.status = 2
+        # State
+        st = (manga.get('state') or '').upper()
+        if st == 'ONGOING': bm.status = 1
+        elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
         else: bm.status = 0
         
         # Genres
-        for tag in manga.get('tags', []):
-            if tag: bm.genre.append(str(tag))
-
+        for t in manga.get('tags', []):
+            if t: bm.genre.append(str(t))
+            
         success_count += 1
 
-    # Serialize
+    # Save
     out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
     with gzip.open(out_path, 'wb') as f:
         f.write(backup.SerializeToString())
 
-    print("-" * 40)
-    print(f"MIGRATION COMPLETE")
-    print(f"Total Entries: {len(data)}")
-    print(f"Migrated:      {success_count}")
-    print(f"Output:        {out_path}")
-    print("-" * 40)
+    print("-" * 50)
+    print(f"MIGRATION REPORT")
+    print(f"Total: {len(data)} | Migrated: {success_count}")
+    print(f"File:  {out_path}")
+    print("-" * 50)
 
 if __name__ == "__main__":
     main()
