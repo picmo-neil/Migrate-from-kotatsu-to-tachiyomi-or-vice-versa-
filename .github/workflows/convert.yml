@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'Backup.zip'
-      - 'Backup.tachibk'
       - 'tachiyomi.proto'
       - 'main.py'
   workflow_dispatch:
@@ -22,25 +21,16 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.14'
 
-      - name: Install Protoc
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-
-      - name: Install Python Dependencies
-        run: |
           pip install protobuf==4.25.3 requests
-
-      - name: Debug File System
-        run: |
-          echo "📂 Listing files to verify proto existence:"
-          ls -la
 
       - name: Compile Schema
         run: |
-          # CRITICAL: This command generates tachiyomi_pb2.py from tachiyomi.proto
           if [ -f "tachiyomi.proto" ]; then
             protoc --python_out=. tachiyomi.proto
             echo "✅ Compiled tachiyomi.proto"
@@ -49,7 +39,7 @@ jobs:
             exit 1
           fi
 
-      - name: Run Python Converter
+      - name: Run connector
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python main.py
