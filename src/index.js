@@ -3,7 +3,6 @@ const path = require('path');
 const AdmZip = require('adm-zip');
 const protobuf = require('protobufjs');
 const zlib = require('zlib');
-const https = require('https');
 
 // --- Configuration ---
 const KOTATSU_INPUT = 'Backup.zip';
@@ -18,7 +17,7 @@ const KOTATSU_REPO_API = 'https://api.github.com/repos/DokiTeam/doki-exts/conten
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 // ==========================================
-// 🧠 REPO BRIDGE ARCHITECTURE (v14.0)
+// 🧠 REPO BRIDGE ARCHITECTURE (v15.0)
 // ==========================================
 
 // [REGISTRY 1] KOTATSU / DOKI
@@ -56,6 +55,7 @@ const ID_SEED = 1125899906842597n;
 function getDomain(url) {
     try {
         let u = url;
+        if (!u || typeof u !== 'string') return null;
         if (!u.startsWith('http')) u = 'https://' + u;
         return new URL(u).hostname.replace(/^www\./, '').replace(/^m\./, '').replace(/^v\d+\./, '');
     } catch(e) { return null; }
@@ -72,27 +72,16 @@ function getKotatsuId(str) {
 
 const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) ? String(s) : "";
 
-function fetchUrl(url, isJson = true) {
-    return new Promise((resolve, reject) => {
-        const headers = { 'User-Agent': 'Node.js-Script' };
-        if (process.env.GH_TOKEN && url.includes('api.github.com')) {
-            headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
-        }
+// Wrapper for Node 20 Native Fetch
+async function fetchUrl(url, isJson = true) {
+    const headers = { 'User-Agent': 'Node.js-Script' };
+    if (process.env.GH_TOKEN && url.includes('api.github.com')) {
+        headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
+    }
 
-        https.get(url, { headers }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    try {
-                        resolve(isJson ? JSON.parse(data) : data);
-                    } catch (e) { reject(e); }
-                } else {
-                    reject(new Error(`Status ${res.statusCode}`));
-                }
-            });
-        }).on('error', reject);
-    });
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.statusText}`);
+    return isJson ? await res.json() : await res.text();
 }
 
 // --- 🌐 LIVE REPO ANALYZERS ---
@@ -118,29 +107,30 @@ async function analyzeKotatsuRepo() {
                     // Fetch Raw Kotlin Content
                     const code = await fetchUrl(file.download_url, false);
                     
-                    // 3. Regex Scraper
-                    // Pattern A: class Name : Parent("Name", "Url", ...)
-                    // Pattern B: override val name = "Name" ... override val baseUrl = "Url"
-                    
+                    // 3. Robust Regex Scraper (Using RegExp constructor to avoid slash escaping issues)
+                    // Matches: override val name = "Name"
+                    const nameRegex = new RegExp('override\\s+val\\s+name\\s*=\\s*"([^"]+)"');
+                    // Matches: override val baseUrl = "Url"
+                    const urlRegex = new RegExp('override\\s+val\\s+baseUrl\\s*=\\s*"([^"]+)"');
+                    // Matches: super("Name", "Url" ...
+                    const superRegex = new RegExp('super\\(\\s*"([^"]+)"');
+                    // Matches: "https://..." (fallback)
+                    const simpleUrlRegex = new RegExp('"(https?://[^"]+)"');
+
                     let name = null;
                     let url = null;
 
-                    // Try extraction
-                    const nameMatch = code.match(/override\s+val\s+name\s*=s*"([^"]+)"/) || code.match(/super\(\s*"([^"]+)"/);
-                    const urlMatch = code.match(/override\s+val\s+baseUrl\s*=s*"([^"]+)"/) || code.match(/"(https?://[^"]+)"/);
+                    const nameMatch = code.match(nameRegex) || code.match(superRegex);
+                    const urlMatch = code.match(urlRegex) || code.match(simpleUrlRegex);
 
                     if (nameMatch) name = nameMatch[1];
                     if (urlMatch) url = urlMatch[1];
 
                     if (name && url) {
                         const domain = getDomain(url);
-                        // Clean Name for internal key (Kotatsu often uses UPPER_CASE keys or simple names)
-                        // Heuristic: The file name usually corresponds to the key logic
-                        // But we map [Name] -> [Domain]
                         if (domain) {
-                            // Map the raw name from code
                             KOTATSU_REGISTRY[name] = domain;
-                            // Map the upper-snake-case version (common in backups)
+                            // Add UPPER_CASE_KEY variant for safety
                             const key = name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
                             KOTATSU_REGISTRY[key] = domain;
                             scanned++;
@@ -186,14 +176,11 @@ async function analyzeKeiyoushiRepo() {
 // 1. KOTATSU -> TACHIYOMI
 function resolveKotatsuToTachiyomi(kotatsuName, publicUrl) {
     let domain = null;
-    // Try Live Registry first
     if (KOTATSU_REGISTRY[kotatsuName]) domain = KOTATSU_REGISTRY[kotatsuName];
-    // Fallback to URL in backup
     else if (publicUrl) domain = getDomain(publicUrl);
 
     if (!domain) return { id: getKotatsuId(kotatsuName).toString(), name: kotatsuName };
 
-    // Bridge Crossing
     if (KEIYOUSHI_REGISTRY[domain]) {
         const tId = KEIYOUSHI_REGISTRY[domain];
         const tName = TACHI_NAMES[tId] || kotatsuName;
@@ -221,11 +208,10 @@ function resolveTachiyomiToKotatsu(tachiId, tachiName, url) {
     if (domain) {
         // Search Kotatsu Registry for this domain
         for (const [kName, domVal] of Object.entries(KOTATSU_REGISTRY)) {
-            if (domVal === domain) return kName; // Found exact match from live scrape
+            if (domVal === domain) return kName; 
         }
         
-        // Smart Reconstruction (Safety Net)
-        // If live scrape missed it (or new source), generate a valid-looking key
+        // Smart Reconstruction: Generate valid key if not found in scraper
         return domain.split('.')[0].toUpperCase().replace(/[^A-Z0-9]/g, "_");
     }
 
@@ -235,7 +221,7 @@ function resolveTachiyomiToKotatsu(tachiId, tachiName, url) {
 // --- MAIN PROCESS ---
 
 async function main() {
-    console.log('📦 Initializing Repo Bridge Engine (v14.0)...');
+    console.log('📦 Initializing Repo Bridge Engine (v15.0)...');
     
     // Parallel Repo Analysis
     await Promise.all([analyzeKeiyoushiRepo(), analyzeKotatsuRepo()]);
@@ -418,4 +404,4 @@ main().catch(err => {
     console.error("❌ Fatal Error:", err);
     process.exit(1);
 });
-        
+    
