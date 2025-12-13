@@ -17,7 +17,7 @@ const KOTATSU_REPO_API = 'https://api.github.com/repos/DokiTeam/doki-exts/conten
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 // ==========================================
-// 🧠 REPO BRIDGE ARCHITECTURE (v15.0)
+// 🧠 REPO BRIDGE ARCHITECTURE (v17.0)
 // ==========================================
 
 // [REGISTRY 1] KOTATSU / DOKI
@@ -99,6 +99,13 @@ async function analyzeKotatsuRepo() {
         let scanned = 0;
         const batchSize = 10;
         
+        // Use RegExp constructor to avoid slash escaping issues in generated code
+        // Triple/Quadruple escape is needed here because this string is inside another string.
+        const nameRegex = new RegExp('override\\s+val\\s+name\\s*=\\s*"([^"]+)"');
+        const urlRegex = new RegExp('override\\s+val\\s+baseUrl\\s*=\\s*"([^"]+)"');
+        const superRegex = new RegExp('super\\(\\s*"([^"]+)"');
+        const simpleUrlRegex = new RegExp('"(https?://[^"]+)"');
+
         for (let i = 0; i < files.length; i += batchSize) {
             const batch = files.slice(i, i + batchSize);
             await Promise.all(batch.map(async (file) => {
@@ -107,16 +114,6 @@ async function analyzeKotatsuRepo() {
                     // Fetch Raw Kotlin Content
                     const code = await fetchUrl(file.download_url, false);
                     
-                    // 3. Robust Regex Scraper (Using RegExp constructor to avoid slash escaping issues)
-                    // Matches: override val name = "Name"
-                    const nameRegex = new RegExp('override\\s+val\\s+name\\s*=\\s*"([^"]+)"');
-                    // Matches: override val baseUrl = "Url"
-                    const urlRegex = new RegExp('override\\s+val\\s+baseUrl\\s*=\\s*"([^"]+)"');
-                    // Matches: super("Name", "Url" ...
-                    const superRegex = new RegExp('super\\(\\s*"([^"]+)"');
-                    // Matches: "https://..." (fallback)
-                    const simpleUrlRegex = new RegExp('"(https?://[^"]+)"');
-
                     let name = null;
                     let url = null;
 
@@ -221,7 +218,7 @@ function resolveTachiyomiToKotatsu(tachiId, tachiName, url) {
 // --- MAIN PROCESS ---
 
 async function main() {
-    console.log('📦 Initializing Repo Bridge Engine (v15.0)...');
+    console.log('📦 Initializing Repo Bridge Engine (v17.0)...');
     
     // Parallel Repo Analysis
     await Promise.all([analyzeKeiyoushiRepo(), analyzeKotatsuRepo()]);
@@ -245,12 +242,13 @@ async function kotatsuToTachiyomi(BackupMessage) {
     
     let favouritesData = null, categoriesData = null, historyData = null;
     zip.getEntries().forEach(e => {
-        if(e.name.includes('favourites')) favouritesData = JSON.parse(e.getData().toString('utf8'));
-        if(e.name.includes('categories')) categoriesData = JSON.parse(e.getData().toString('utf8'));
-        if(e.name.includes('history')) historyData = JSON.parse(e.getData().toString('utf8'));
+        // Strict but backward compatible check for Kotatsu filenames
+        if(e.name === 'favourites' || e.name === 'favourites.json') favouritesData = JSON.parse(e.getData().toString('utf8'));
+        if(e.name === 'categories' || e.name === 'categories.json') categoriesData = JSON.parse(e.getData().toString('utf8'));
+        if(e.name === 'history' || e.name === 'history.json') historyData = JSON.parse(e.getData().toString('utf8'));
     });
 
-    if(!favouritesData) throw new Error("Invalid Kotatsu Backup");
+    if(!favouritesData) throw new Error("Invalid Kotatsu Backup: Missing favourites data");
 
     const backupCategories = (categoriesData || []).map((c, i) => ({
         name: c.name, order: c.sortKey || i, flags: 0
@@ -330,6 +328,20 @@ async function tachiyomiToKotatsu(BackupMessage) {
 
     const favorites = [];
     const history = [];
+    const categories = [];
+
+    // Map Categories
+    if (tachiData.backupCategories) {
+        tachiData.backupCategories.forEach((c, idx) => {
+            categories.push({
+                id: idx + 1, // Kotatsu categories need IDs
+                name: c.name,
+                sortKey: c.order || idx,
+                sortOrder: "ASC",
+                hidden: false
+            });
+        });
+    }
 
     (tachiData.backupManga || []).forEach(tm => {
         let name = "Source";
@@ -348,9 +360,15 @@ async function tachiyomiToKotatsu(BackupMessage) {
 
         const publicUrl = domain ? `https://${domain}${kUrl}` : null;
 
+        // Map Category ID
+        let catId = 0;
+        if (tm.categories && tm.categories.length > 0 && categories.length > 0) {
+            catId = 0; // Defaulting to Uncategorized if complexity matches fail
+        }
+
         favorites.push({
             manga_id: kId,
-            category_id: 0,
+            category_id: catId,
             sort_key: 0,
             created_at: Number(tm.dateAdded),
             manga: {
@@ -361,7 +379,8 @@ async function tachiyomiToKotatsu(BackupMessage) {
                 source: kSource,
                 state: tm.status === 2 ? "FINISHED" : "ONGOING",
                 cover_url: cleanStr(tm.thumbnailUrl),
-                tags: tm.genre || []
+                tags: tm.genre || [],
+                chapters: [] 
             }
         });
 
@@ -391,17 +410,35 @@ async function tachiyomiToKotatsu(BackupMessage) {
     });
 
     const zip = new AdmZip();
-    zip.addFile("favourites.json", Buffer.from(JSON.stringify(favorites), "utf8"));
-    zip.addFile("history.json", Buffer.from(JSON.stringify(history), "utf8"));
+    
+    // --- 1. Core Data (NO EXTENSIONS as per Kotatsu spec) ---
     zip.addFile("favourites", Buffer.from(JSON.stringify(favorites), "utf8"));
     zip.addFile("history", Buffer.from(JSON.stringify(history), "utf8"));
+    zip.addFile("categories", Buffer.from(JSON.stringify(categories), "utf8"));
+    
+    // --- 2. Required Empty/Default Files ---
+    zip.addFile("bookmarks", Buffer.from("[]", "utf8"));
+    zip.addFile("reader_grid", Buffer.from("{}", "utf8"));
+    zip.addFile("scrobbling", Buffer.from("{}", "utf8"));
+    zip.addFile("settings", Buffer.from("{}", "utf8"));
+    zip.addFile("sources", Buffer.from("[]", "utf8"));
+    zip.addFile("statistics", Buffer.from("{}", "utf8"));
+    zip.addFile("saved_filters", Buffer.from("[]", "utf8"));
+
+    // --- 3. Index Metadata ---
+    const indexData = {
+        version: 2,
+        created_at: Date.now(),
+        app_version: "2025.01.01"
+    };
+    zip.addFile("index", Buffer.from(JSON.stringify(indexData), "utf8"));
 
     zip.writeZip(path.join(OUTPUT_DIR, 'converted_kotatsu.zip'));
-    console.log('✅ Success! Created converted_kotatsu.zip');
+    console.log('✅ Success! Created converted_kotatsu.zip with strict file structure (no .json extensions).');
 }
 
 main().catch(err => {
     console.error("❌ Fatal Error:", err);
     process.exit(1);
 });
-    
+            
