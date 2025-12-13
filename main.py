@@ -538,20 +538,19 @@ def main():
 
         for t in m.get('tags', []):
             if t: bm.genre.append(str(t))
-‎
-‎    # 5. Export
-‎    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-‎    with gzip.open(out_path, 'wb') as f:
-‎        f.write(backup.SerializeToString())
-‎
-‎    print("="*50)
-‎    print(f"MIGRATION COMPLETE (v6.9.0)")
-‎    print(f"Total:      {len(data)}")
-‎    print(f"Official:   {stats['official']} (Architect Match)")
-‎    print(f"Fallback:   {stats['fallback']}")
-‎    print(f"Output:     {out_path}")
-‎    print("="*50)
-‎
-‎if __name__ == "__main__":
-‎    main()
-‎
+
+    # 5. Export
+    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+    with gzip.open(out_path, 'wb') as f:
+        f.write(backup.SerializeToString())
+
+    print("="*50)
+    print(f"MIGRATION COMPLETE (v5.0.0)")
+    print(f"Total:      {len(data)}")
+    print(f"Official:   {stats['official']} (Architect Match)")
+    print(f"Fallback:   {stats['fallback']}")
+    print(f"Output:     {out_path}")
+    print("="*50)
+
+if __name__ == "__main__":
+    main()
