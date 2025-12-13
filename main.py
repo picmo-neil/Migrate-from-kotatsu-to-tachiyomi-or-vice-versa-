@@ -37,7 +37,15 @@ DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-# --- OMNI-DATABASE (1000+ FALLBACK) ---
+# --- GLOBAL KNOWLEDGE ---
+TLD_LIST = [
+    "com", "net", "org", "io", "co", "to", "me", "gg", "cc", "xyz", "fm", 
+    "site", "club", "live", "world", "app", "dev", "tech", "space", "top", 
+    "online", "info", "biz", "eu", "us", "uk", "ca", "au", "ru", "jp", "br", 
+    "es", "fr", "de", "it", "nl", "pl", "in", "vn", "id", "th", "tw", "cn", 
+    "kr", "my", "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "co", "ve"
+]
+
 STATIC_WISDOM = {
     # Aggregators & Giants
     "MANGADEX": "mangadex.org", "MANGANATO": "manganato.com", "MANGAKAKALOT": "mangakakalot.com",
@@ -188,8 +196,19 @@ def get_root_domain(domain):
     return domain
 
 def normalize_name(name):
+    """
+    HEURISTIC: Strips TLDs if the name looks like a domain (e.g. 'manganato.com' -> 'MANGANATO').
+    """
     if not name: return ""
-    n = name.upper()
+    n = name.lower()
+    
+    # TLD Stripping
+    for tld in TLD_LIST:
+        if n.endswith(f".{tld}"):
+            n = n[:-len(tld)-1]
+            break
+            
+    n = n.upper()
     suffixes = [
         " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", 
         " SCANS", " SCAN", " COMICS", " COMIC", " TOON", " TOONS",
@@ -211,6 +230,10 @@ def get_session():
     s.mount('https://', HTTPAdapter(max_retries=retries))
     if GH_TOKEN:
         s.headers.update({'Authorization': f'token {GH_TOKEN}'})
+    # STEALTH HEADER
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    })
     return s
 
 # --- 🛰️ CORTEX A: DOKI POLYGLOT SCANNER ---
@@ -259,22 +282,29 @@ class DokiCortex:
     def extract_dna(self, content, filename):
         """
         Polyglot Parsing: Looks for String Literals that resemble domains.
+        Uses Deep-Code Regex for baseUrl assignments.
         """
         potential_domains = set()
         
-        # Regex for string literals containing dots, no spaces, length > 4
+        # 1. Look for 'override val baseUrl = "..."' (Kotlin specific)
+        base_url_matches = re.findall(r'baseUrls*=s*"([^"]+)"', content)
+        for match in base_url_matches:
+            d = get_domain(match)
+            if d: potential_domains.add(d)
+
+        # 2. Heuristic String Literals
         raw_strings = re.findall(r'"([^"s]+.[^"s]+)"', content)
-        
         for s in raw_strings:
             if '/' in s and not s.startswith('http'): continue
             if s.endswith('.kt') or s.endswith('.json'): continue
-            
-            d = get_domain(s)
-            if d: potential_domains.add(d)
+            if any(tld in s for tld in ['.com', '.net', '.org']): # Quick check
+                 d = get_domain(s)
+                 if d: potential_domains.add(d)
 
         potential_ids = set(re.findall(r'"([A-Z0-9_]{3,})"', content))
 
         if potential_domains:
+            # Pick shortest length domain as primary (usually the main one)
             best_domain = sorted(list(potential_domains), key=len)[0]
             self.knowledge[normalize_name(filename)] = best_domain
             self.knowledge[filename] = best_domain
@@ -282,7 +312,7 @@ class DokiCortex:
                 self.knowledge[normalize_name(pid)] = best_domain
                 self.knowledge[pid] = best_domain
 
-# --- 🔮 STAGE 6: THE ORACLE (ACTIVE WEB CRAWLER) ---
+# --- 🔮 STAGE 8: THE ORACLE (STEALTH PROBE) ---
 class Oracle:
     def __init__(self, brain):
         self.brain = brain
@@ -292,7 +322,6 @@ class Oracle:
         """
         Takes a list of {'source': name, 'url': url} that failed bridging.
         Probes the URLs to find where they land (redirects).
-        Updates the Brain with new Knowledge.
         """
         unique_urls = {}
         for item in unbridged_items:
@@ -302,9 +331,8 @@ class Oracle:
         
         if not unique_urls: return
 
-        print(f"🔮 Oracle: Active Probing {len(unique_urls)} unknown signals...")
+        print(f"🔮 Oracle: Active Stealth Probing {len(unique_urls)} unknown signals...")
         
-        # Limit workers to avoid spamming
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             future_to_url = {executor.submit(self.probe, u): (u, s) for u, s in unique_urls.items()}
             
@@ -314,7 +342,6 @@ class Oracle:
                 try:
                     final_domain = future.result()
                     if final_domain:
-                        # Check if this resolved domain exists in our brain
                         match = None
                         if final_domain in self.brain.domain_map:
                             match = self.brain.domain_map[final_domain]
@@ -324,11 +351,8 @@ class Oracle:
                                  match = self.brain.root_domain_map[root]
                         
                         if match:
-                            # WE FOUND A LINK!
                             discovered += 1
-                            # Map the Original Source Name to this ID
                             self.brain.name_map[normalize_name(orig_source)] = match
-                            # Map the Original Domain to this ID
                             orig_domain = get_domain(orig_url)
                             if orig_domain:
                                 self.brain.domain_map[orig_domain] = match
@@ -336,15 +360,14 @@ class Oracle:
                     pass
         
         if discovered > 0:
-            print(f"🔮 Oracle: Insight Gained! Discovered {discovered} new bridges via Deep Web Probe.")
+            print(f"🔮 Oracle: Insight Gained! Discovered {discovered} new bridges.")
 
     def probe(self, url):
         try:
-            # HEAD request usually enough and faster, follow redirects
+            # HEAD first with stealth headers
             resp = self.session.head(url, allow_redirects=True, timeout=10)
             return get_domain(resp.url)
         except:
-            # Try GET if HEAD fails (some sites block HEAD)
             try:
                 resp = self.session.get(url, allow_redirects=True, timeout=10, stream=True)
                 resp.close()
@@ -362,7 +385,7 @@ class BridgeBrain:
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v64.1)...")
+        print("🧠 BridgeBrain: Initializing The Singularity (v66.0 Omniscient)...")
         
         # 1. LIVE FETCH DOKI (Cortex A)
         doki_cortex = DokiCortex()
@@ -380,40 +403,48 @@ class BridgeBrain:
             print(f"📡 Cortex B: LIVE fetching Keiyoushi Registry...")
             try:
                 resp = self.session.get(url, timeout=30)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    for ext in data:
-                        for src in ext.get('sources', []):
-                            sid = src.get('id')
-                            name = src.get('name')
-                            base = src.get('baseUrl')
-                            
-                            signed_id = to_signed_64(sid)
-                            domain = get_domain(base)
-                            norm = normalize_name(name)
-                            
-                            if domain: 
-                                self.domain_map[domain] = (signed_id, name)
-                                root = get_root_domain(domain)
-                                if root:
-                                    self.root_domain_map[root] = (signed_id, name)
+‎                if resp.status_code == 200:
+‎                    data = resp.json()
+‎                    for ext in data:
+‎                        for src in ext.get('sources', []):
+‎                            sid = src.get('id')
+‎                            name = src.get('name')
+‎                            base = src.get('baseUrl')
+‎                            
+‎                            signed_id = to_signed_64(sid)
+‎                            domain = get_domain(base)
+‎                            norm = normalize_name(name)
+‎                            
+‎                            if domain: 
+‎                                self.domain_map[domain] = (signed_id, name)
+‎                                root = get_root_domain(domain)
+‎                                if root:
+‎                                    self.root_domain_map[root] = (signed_id, name)
 ‎                            
 ‎                            if norm: self.name_map[norm] = (signed_id, name)
 ‎            except Exception as e:
 ‎                print(f"⚠️ Index Error: {e}")
 ‎
 ‎    def synthesize_permutations(self, name):
-‎        """Generates domain variants for Hallucination Check"""
+‎        """
+‎        OMNISCIENT PERMUTATIONS: 
+‎        Uses TLD_LIST to generate all likely domain variants.
+‎        """
 ‎        n = normalize_name(name).lower()
 ‎        if not n: return []
 ‎        
 ‎        clean = n.replace("scans", "").replace("scan", "").replace("comics", "").replace("comic", "")
 ‎        
-‎        candidates = [
-‎            f"{n}.com", f"{n}.net", f"{n}.org", f"{n}.to", f"{n}.io", f"{n}.gg", f"{n}.cc", f"{n}.me",
-‎            f"read{n}.com", f"{n}scans.com", f"{n}-scans.com",
-‎            f"{clean}.com", f"{clean}.to", f"{clean}.io", f"read{clean}.com", f"{clean}.net", f"{clean}.org"
-‎        ]
+‎        candidates = []
+‎        
+‎        # 1. Standard
+‎        bases = [n, clean, f"read{n}", f"{n}scans"]
+‎        
+‎        # 2. Iterate ALL TLDs
+‎        for base in bases:
+‎            for tld in TLD_LIST:
+‎                candidates.append(f"{base}.{tld}")
+‎                
 ‎        return candidates
 ‎
 ‎    def fuzzy_match(self, name):
@@ -458,17 +489,24 @@ class BridgeBrain:
 ‎            if learned_root and learned_root in self.root_domain_map:
 ‎                return self.root_domain_map[learned_root]
 ‎
-‎        # STAGE 3: DIRECT NAME
+‎        # STAGE 3: DIRECT NAME (Enhanced Normalization)
 ‎        if k_norm in self.name_map:
 ‎            return self.name_map[k_norm]
+‎        
+‎        # TLD Heuristic Check: If Kotatsu Name matches a Domain directly
+‎        # e.g. Name="Manganato.com" -> Domain="manganato.com"
+‎        if "." in kotatsu_name:
+‎             possible_domain = get_domain(kotatsu_name)
+‎             if possible_domain and possible_domain in self.domain_map:
+‎                 return self.domain_map[possible_domain]
 ‎
-‎        # STAGE 4: QUANTUM PERMUTATION (Hallucination Check)
+‎        # STAGE 4: QUANTUM PERMUTATION (Omniscient)
 ‎        for candidate in self.synthesize_permutations(kotatsu_name):
 ‎            cand_domain = get_domain(candidate)
 ‎            if cand_domain in self.domain_map:
 ‎                return self.domain_map[cand_domain]
 ‎            cand_root = get_root_domain(cand_domain)
-‎            if cand_root and cand_root in self.root_domain_map: # Fixed Syntax Error here
+‎            if cand_root and cand_root in self.root_domain_map:
 ‎                return self.root_domain_map[cand_root]
 ‎
 ‎        # STAGE 5: FUZZY SEMANTIC
@@ -489,7 +527,7 @@ class BridgeBrain:
 ‎    brain = BridgeBrain()
 ‎    brain.ingest()
 ‎
-‎    print("\n🔄 STARTING MIGRATION (SINGULARITY MODE)...")
+‎    print("\n🔄 STARTING MIGRATION (SINGULARITY OMNISCIENT)...")
 ‎    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
 ‎        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
 ‎        if not fav_file: raise Exception("No favourites file in zip.")
