@@ -330,9 +330,9 @@ class IntelligenceAgency:
             resp = self.session.get(url, timeout=10)
             if resp.status_code == 200:
                 txt = resp.text
-                id_m = re.search(r'vals+ids*=s*(d+)L?', txt)
-                name_m = re.search(r'vals+names*=s*"([^"]+)"', txt)
-                url_m = re.search(r'vals+baseUrls*=s*"([^"]+)"', txt)
+                id_m = re.search(r'val\s+id\s*=\s*(\d+)L?', txt)
+                name_m = re.search(r'val\s+name\s*=\s*"([^"]+)"', txt)
+                url_m = re.search(r'val\s+baseUrl\s*=\s*"([^"]+)"', txt)
                 if id_m:
                     name = name_m.group(1) if name_m else f_obj['path'].split('/')[-1].replace('.kt','')
                     self._register_source(int(id_m.group(1)), name, url_m.group(1) if url_m else None)
