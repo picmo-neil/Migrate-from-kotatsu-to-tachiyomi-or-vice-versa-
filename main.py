@@ -12,6 +12,8 @@ try:
     import tachiyomi_pb2
 except ImportError:
     print("❌ Error: tachiyomi_pb2.py not found. The workflow must run 'protoc --python_out=. tachiyomi.proto'")
+    # Debug aid
+    print("Current directory files:", os.listdir('.'))
     exit(1)
 
 # --- CONFIG ---
@@ -23,7 +25,7 @@ KEIYOUSHI_URL = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/ind
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-# --- DATABASE (Hardcoded High-Priority) ---
+# --- 🏆 GOLDEN DATABASE (High Priority) ---
 GOLDEN_DB = {
     "mangadex.org": (2499283573021220255, "MangaDex"),
     "manganato.com": (1791778683660516, "Manganato"),
@@ -36,19 +38,59 @@ GOLDEN_DB = {
     "asuratoon.com": (6676140324647343467, "Asura Scans"),
     "asurascans.com": (6676140324647343467, "Asura Scans"),
     "flamecomics.com": (7350700882194883466, "Flame Comics"),
+    "flamescans.org": (7350700882194883466, "Flame Comics"),
     "reaperscans.com": (5113063529342730466, "Reaper Scans"),
     "comick.io": (4689626359218228302, "Comick"),
+    "comick.app": (4689626359218228302, "Comick"),
     "nhentai.net": (7670359809983944111, "NHentai"),
     "mangapark.net": (3078776274472836268, "MangaPark"),
+    "mangasee123.com": (4440409403861343016, "MangaSee"),
+    "manga4life.com": (1705664535359190141, "MangaLife"),
+    "tcbscans.com": (3639678122679549925, "TCB Scans"),
 }
 
-# --- KOTATSU MAPPING ---
+# --- KOTATSU MAPPING RESTORED ---
 KOTATSU_OVERRIDES = {
+    # English Aggregators
     "MANGADEX": "MANGADEX",
     "MANGANATO": "MANGANATO",
     "BATOTO": "BATOTO",
+    "MANGAKAKALOT": "MANGAKAKALOT",
+    "MANGAPARK": "MANGAPARK",
+    "MANGATX": "MANGATX",
+    "MANGASEE": "MANGASEE",
+    "MANGALIFE": "MANGALIFE",
+    "READMANGANATO": "MANGANATO",
+    "CHAPMANGANATO": "MANGANATO",
+    "COMICK": "COMICK",
+    
+    # Scanlators
     "ASURA_SCANS": "ASURA_SCANS",
-    "MANGAKAKALOT": "MANGAKAKALOT"
+    "FLAME_COMICS": "FLAME_COMICS",
+    "REAPER_SCANS": "REAPER_SCANS",
+    "TCB_SCANS": "TCB_SCANS",
+    "LH_TRANSLATION": "LH_TRANSLATION",
+    "DRAKE_SCANS": "DRAKE_SCANS",
+    "RESET_SCANS": "RESET_SCANS",
+    "COSMIC_SCANS": "COSMIC_SCANS",
+    
+    # Spanish
+    "TU_MANGA_ONLINE": "TU_MANGA_ONLINE",
+    "LECTOR_MANGA": "LECTOR_MANGA",
+    "MANGAS_ORIGINAL": "MANGAS_ORIGINAL",
+    "OLYMPUS_SCANS": "OLYMPUS_SCANS",
+    
+    # Portuguese
+    "MUITO_MANGA": "MUITO_MANGA",
+    "LER_MANGA": "LER_MANGA",
+    "MANGA_HOST": "MANGA_HOST",
+    "NEOX_SCANS": "NEOX_SCANS",
+    "GEKKOU_SCANS": "GEKKOU_SCANS",
+    
+    # Indonesian
+    "KIRYU_REV": "KIRYU_REV",
+    "WEST_MANGA": "WEST_MANGA",
+    "KOMIKCAST": "KOMIKCAST",
 }
 
 # --- GLOBAL LIVE MAP ---
@@ -209,7 +251,8 @@ def tachiyomi_to_kotatsu():
         elif domain == "manganato.com": k_key = "MANGANATO"
         elif domain == "bato.to": k_key = "BATOTO"
         else:
-            k_key = upper_name.replace("_SCANS", "").replace("_COMICS", "")
+            # Clean common suffixes
+            k_key = upper_name.replace("_SCANS", "").replace("_COMICS", "").replace("_ORG", "")
 
         seed = f"{k_key}{tm.url}"
         kid = str(java_string_hashcode(seed))
@@ -237,7 +280,7 @@ def tachiyomi_to_kotatsu():
         z.writestr("favourites", json.dumps(favorites))
         z.writestr("history", "[]")
         z.writestr("categories", "[]")
-        z.writestr("index", json.dumps({"version": 2, "created_at": 0, "app_version": "51.0"}))
+        z.writestr("index", json.dumps({"version": 2, "created_at": 0, "app_version": "52.0"}))
     
     print(f"✅ Created {out_path} with {len(favorites)} entries.")
 
