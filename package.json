@@ -1,8 +1,8 @@
 
 {
   "name": "universal-manga-migrator",
-  "version": "13.0.0",
-  "description": "Repo Bridge Converter v13",
+  "version": "0.0.0",
+  "description": "Repo Bridge Converter v0",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
