@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Kotatsu to Tachiyomi Migration Utility
-Version: 4.4.4
+Version: 6.9.0
+Status: MAXIMUM POWER
 """
 
 import os
@@ -25,7 +26,7 @@ OUTPUT_DIR = 'output'
 OUTPUT_FILE = 'Backup.tachibk'
 GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# Ensure UTF-8 Output for Logs
+# Ensure UTF-8 Output
 sys.stdout.reconfigure(encoding='utf-8')
 
 # --- External Intelligence ---
@@ -37,66 +38,79 @@ KEIYOUSHI_URLS = [
 DOKI_API = "https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1"
 DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 
-# --- Knowledge Base: Stop Words ---
-STOP_WORDS = {
-    "scans", "scan", "comics", "comic", "manga", "manhua", "manhwa", 
-    "read", "online", "team", "fansub", "translation", "toon", "toons", 
-    "webtoon", "novel", "novels", "the", "club", "org", "net", "com", "me", "site",
-    "app", "io", "gg", "cc", "xyz", "top", "fun", "pro", "media", "official"
-}
+# --- The Omniscience Database ---
+# A massive, comprehensive mapping of Alias -> Canonical Domain
+# This list is intentionally aggressive to catch everything.
 
-# --- The Precision Vault (High-Impact Targets Only) ---
 OMNI_VAULT = {
-    # === AGGREGATOR GIANTS ===
-    "MANGANATO": "manganato.com", "MANGANELO": "manganato.com", "READMANGANATO": "manganato.com",
+    # === AGGREGATORS & GIANTS ===
+    "MANGANATO": "manganato.com", "MANGANELO": "manganato.com", "READMANGANATO": "manganato.com", "CHAPMANGANATO": "manganato.com",
     "MANGAKAKALOT": "mangakakalot.com", "KAKALOT": "mangakakalot.com",
-    "BATO": "bato.to", "BATOTO": "bato.to", "MANGATOTO": "bato.to",
+    "BATO": "bato.to", "BATOTO": "bato.to", "MANGATOTO": "bato.to", "ZHBATO": "bato.to", "BATO.TO": "bato.to",
     "MANGASEE": "mangasee123.com", "MANGASEE123": "mangasee123.com",
     "MANGALIFE": "manga4life.com", "MANGA4LIFE": "manga4life.com",
-    "MANGAPARK": "mangapark.net", "MANGAPARK V3": "mangapark.net",
-    "MANGADEX": "mangadex.org",
+    "MANGAPARK": "mangapark.net", "MANGAPARKV3": "mangapark.net", "MANGAPARKV5": "mangapark.net",
+    "MANGADEX": "mangadex.org", "DEX": "mangadex.org",
     "MANGAGO": "mangago.me",
     "READM": "readm.org",
     "MANGAFOX": "fanfox.net", "FANFOX": "fanfox.net",
     "MANGATOWN": "mangatown.com",
     "MANGAPANDA": "mangapanda.com",
     "MANGAHUB": "mangahub.io",
-    "NINEMANGA": "ninemanga.com",
+    "NINEMANGA": "ninemanga.com", "NINEMANGA(EN)": "ninemanga.com",
     "MANGATIGRE": "mangatigre.net",
     "TUIMANGA": "tuimanga.com",
+    "MANGATUBE": "mangatube.site",
+    "MANGATX": "mangatx.com",
     
-    # === THE SCANLATOR ELITE (Troublemakers) ===
+    # === SCANLATORS (A-Z) ===
+    "ALPHA": "alpha-scans.org", "ALPHASCANS": "alpha-scans.org",
     "ASURA": "asuracomic.net", "ASURASCANS": "asuracomic.net", "ASURATOON": "asuracomic.net", "ASURA.GG": "asuracomic.net",
-    "FLAME": "flamecomics.com", "FLAMESCANS": "flamecomics.com",
-    "REAPER": "reaperscans.com", "REAPERSCANS": "reaperscans.com",
-    "LUMINOUS": "luminousscans.com", "LUMINOUSSCANS": "luminousscans.com",
-    "LEVIATAN": "leviatanscans.com", "LEVIATANSCANS": "leviatanscans.com",
-    "DRAKE": "drakescans.com",
-    "RESET": "reset-scans.com",
-    "XCALIBR": "xcalibrscans.com",
-    "OZUL": "ozulscans.com",
-    "TCB": "tcbscans.com", "TCBSCANS": "tcbscans.com",
-    "VOID": "void-scans.com", "VOIDSCANS": "void-scans.com", "HIVE": "void-scans.com",
-    "COSMIC": "cosmicscans.com",
-    "SURYA": "suryascans.com",
-    "ASTRA": "astrascans.org",
-    "ALPHA": "alpha-scans.org",
-    "DISASTER": "disasterscans.com",
-    "RIZZ": "rizzcomic.com",
-    "TRITINIA": "tritinia.org",
-    "ZERO": "zeroscans.com",
-    "ZIN": "zinmanga.com",
-    "KITSUNE": "mangakitsune.com",
+    "ASTRA": "astrascans.org", "ASTRASCANS": "astrascans.org",
+    "AQUA": "aquamanga.com", "AQUAMANGA": "aquamanga.com",
+    "AZURE": "azuremanga.com", "AZUREMANGA": "azuremanga.com",
+    "COSMIC": "cosmicscans.com", "COSMICSCANS": "cosmicscans.com",
+    "DISASTER": "disasterscans.com", "DISASTERSCANS": "disasterscans.com",
+    "DRAKE": "drakescans.com", "DRAKESCANS": "drakescans.com",
+    "DRAGONTEA": "dragontea.ink",
+    "FLAME": "flamecomics.com", "FLAMESCANS": "flamecomics.com", "FLAMECOMICS": "flamecomics.com",
+    "GALAXY": "galaxymanga.org", "GALAXYMANGA": "galaxymanga.org",
+    "GOURMET": "gourmetscans.net",
+    "HIVE": "void-scans.com", "HIVESCANS": "void-scans.com", "VOID": "void-scans.com", "VOIDSCANS": "void-scans.com",
+    "IMMORTAL": "immortalupdates.com",
     "INFERNAL": "infernalvoidscans.com",
+    "KITSUNE": "mangakitsune.com",
+    "KKJ": "kkjscans.co",
+    "KOMIKCAST": "komikcast.cz",
+    "KOMIKINDO": "komikindo.id",
+    "LEVIATAN": "leviatanscans.com", "LEVIATANSCANS": "leviatanscans.com",
+    "LUMINOUS": "luminousscans.com", "LUMINOUSSCANS": "luminousscans.com",
+    "LYRA": "lyrascans.com",
     "METHOD": "methodscans.com",
-    "GALAXY": "galaxymanga.org",
-    "KNIGHT": "knightnoscanlation.com",
-    
-    # === MANHWA & WEBTOON SPECIALISTS ===
+    "MMSCANS": "mm-scans.org",
+    "NEOX": "neoxscans.net",
+    "NIGHT": "nightscans.org", "NIGHTSCANS": "nightscans.org",
+    "OMEGA": "omegascans.org", "OMEGASCANS": "omegascans.org",
+    "OZUL": "ozulscans.com", "OZULSCANS": "ozulscans.com",
+    "PLATINUM": "platinumscans.com",
+    "RAVEN": "ravenscans.com", "RAVENSCANS": "ravenscans.com",
+    "REALM": "realmscans.com", "REALMSCANS": "realmscans.com",
+    "REAPER": "reaperscans.com", "REAPERSCANS": "reaperscans.com",
+    "RESET": "reset-scans.com", "RESETSCANS": "reset-scans.com",
+    "RIZZ": "rizzcomic.com", "RIZZCOMIC": "rizzcomic.com",
+    "SURYA": "suryascans.com", "SURYASCANS": "suryascans.com",
+    "TCB": "tcbscans.com", "TCBSCANS": "tcbscans.com",
+    "TRITINIA": "tritinia.org",
+    "XCALIBR": "xcalibrscans.com",
+    "ZERO": "zeroscans.com", "ZEROSCANS": "zeroscans.com",
+    "ZIN": "zinmanga.com", "ZINMANGA": "zinmanga.com",
+    "ZURI": "zuriseen.com",
+
+    # === MANHWA/WEBTOON ===
     "WEBTOONS": "webtoons.com", "LINEWEBTOON": "webtoons.com",
     "TAPAS": "tapas.io",
     "TOONILY": "toonily.com",
-    "1STKISS": "1stkissmanga.io",
+    "1STKISS": "1stkissmanga.io", "1STKISSMANGA": "1stkissmanga.io",
     "MANHUAES": "manhuaes.com",
     "MANHUAFAST": "manhuafast.com",
     "MANHUAGOLD": "manhuagold.com",
@@ -106,7 +120,19 @@ OMNI_VAULT = {
     "VIZ": "viz.com",
     "MANGAPLUS": "mangaplus.shueisha.co.jp",
     
-    # === THE UNDERWORLD (Hentai) ===
+    # === REGIONAL (LATAM/BR/ES) ===
+    "LECTORM": "lectormanga.com",
+    "LEERCAPITULO": "leercapitulo.com",
+    "MANGABR": "mangabr.net",
+    "SILENCESCANS": "silencescan.com.br",
+    "HUNTER": "huntersscan.com",
+    "MUNDOMANHWA": "mundomanhwa.com.br",
+    "PRISMA": "prismascans.net",
+    "REMANGAS": "remangas.top",
+    "OLYMPUS": "olympus-scans.com",
+    "YONA": "yonabar.com",
+    
+    # === HENTAI ===
     "NHENTAI": "nhentai.net",
     "HENTAI20": "hentai20.io",
     "HENTAIREAD": "hentairead.com",
@@ -121,10 +147,12 @@ OMNI_VAULT = {
     "DOUJINDESU": "doujindesu.tv",
     "HENTAIHEROES": "hentaiheroes.net",
     "HENTAIHAND": "hentaihand.com",
-    "HENTAIFOX": "hentaifox.com"
+    "HENTAIFOX": "hentaifox.com",
+    "ASMHENTAI": "asmhentai.com",
+    "HENTAICAFE": "hentai.cafe"
 }
 
-# --- The Graveyard (Historical Redirects) ---
+# --- The Graveyard (Dead Sites to Modern Mirrors) ---
 GRAVEYARD_MAP = {
     "kissmanga.com": "kissmanga.org",
     "mangastream.com": "mangastream.mobi",
@@ -144,7 +172,7 @@ GRAVEYARD_MAP = {
     "manhuaes.io": "manhuaes.com"
 }
 
-# --- Core Logic ---
+# --- Infrastructure ---
 
 class StringUtils:
     @staticmethod
@@ -169,7 +197,6 @@ class StringUtils:
             clean = url if url.startswith('http') else 'https://' + url
             parsed = urlparse(clean)
             domain = parsed.netloc.lower()
-            # Remove subdomains that don't define identity
             for p in ['www.', 'api.', 'm.', 'v1.', 'v2.', 'read.', 'images.']:
                 domain = domain.replace(p, '')
             if ':' in domain: domain = domain.split(':')[0]
@@ -186,23 +213,12 @@ class StringUtils:
         return t.upper()
 
     @staticmethod
-    def get_skeleton(text):
-        """Returns consonant skeleton (e.g. MNGNT for Manganato)"""
-        if not text: return ""
-        t = text.lower()
-        t = re.sub(r'\.(com|net|org|io|to|cc|me|gg|info|xyz|site)$', '', t)
-        t = re.sub(r'[^a-z]', '', t)
-        t = re.sub(r'[aeiou]', '', t)
-        return t.upper()
-
-    @staticmethod
     def tokenize(text):
         if not text: return set()
         t = text.lower()
         t = re.sub(r'[^a-z0-9]', ' ', t)
         parts = t.split()
-        tokens = {p for p in parts if p not in STOP_WORDS and len(p) > 2}
-        return tokens
+        return {p for p in parts if len(p) > 2}
 
     @staticmethod
     def jaccard_similarity(text1, text2):
@@ -218,22 +234,21 @@ class IntelligenceAgency:
         self.session = self._create_session()
         self.domain_map = {}   # domain -> (id, name)
         self.name_map = {}     # normalized_name -> (id, name)
-        self.skeleton_map = {} # skeleton -> (id, name)
         self.known_ids = set()
 
     def _create_session(self):
         s = requests.Session()
-        retries = Retry(total=5, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+        retries = Retry(total=3, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
         s.mount('https://', HTTPAdapter(max_retries=retries))
         if GH_TOKEN:
             s.headers.update({'Authorization': f'token {GH_TOKEN}'})
         s.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) MigrationEngine/4.6'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Architect/5.0'
         })
         return s
 
     def initialize(self):
-        print("[Intel] Initializing Precision Vault...")
+        print("[Intel] Initializing Omniscience Database...")
         self._load_static_data()
         self._sync_keiyoushi()
         self._sync_doki()
@@ -243,14 +258,10 @@ class IntelligenceAgency:
         # Load Vault
         for alias, domain in OMNI_VAULT.items():
             norm = StringUtils.normalize(alias)
-            entry = (None, domain) # ID is unknown until we fetch extensions
+            entry = (None, domain)
             self.name_map[norm] = entry
             self.domain_map[domain] = entry
-            
-            skel = StringUtils.get_skeleton(alias)
-            if skel and len(skel) > 2:
-                self.skeleton_map[skel] = entry
-
+        
         # Load Graveyard
         for dead, alive in GRAVEYARD_MAP.items():
             self.domain_map[dead] = (None, alive)
@@ -267,7 +278,7 @@ class IntelligenceAgency:
             if domain:
                 self.domain_map[domain] = entry
                 
-                # Retroactive Link: If Vault/Graveyard pointed to this domain, update them with the ID
+                # Retroactive Link
                 for dead, alive in GRAVEYARD_MAP.items():
                     if alive == domain: self.domain_map[dead] = entry
                 for k, v in OMNI_VAULT.items():
@@ -276,10 +287,14 @@ class IntelligenceAgency:
         if name:
             norm = StringUtils.normalize(name)
             self.name_map[norm] = entry
-            
-            skel = StringUtils.get_skeleton(name)
-            if skel and len(skel) > 2:
-                self.skeleton_map[skel] = entry
+            # Register Permutations
+            base_norm = norm
+            for suffix in ["SCANS", "SCAN", "COMIC", "COMICS", "TOON", "TOONS", "MANGA"]:
+                if suffix in base_norm:
+                    short_norm = base_norm.replace(suffix, "")
+                    if short_norm and len(short_norm) > 3:
+                        if short_norm not in self.name_map:
+                            self.name_map[short_norm] = entry
 
     def _sync_keiyoushi(self):
         for url in KEIYOUSHI_URLS:
@@ -323,97 +338,124 @@ class IntelligenceAgency:
                     self._register_source(int(id_m.group(1)), name, url_m.group(1) if url_m else None)
         except: pass
 
-# --- Matching Engine ---
+# --- The Neural Matcher ---
 
-class MatchingEngine:
+class NeuralMatcher:
     def __init__(self, intel):
         self.intel = intel
 
     def match(self, name, url):
-        # 1. Exact Domain Match (Score: 1.0 - The Anchor)
+        # 1. Exact Domain Match (100%)
         domain = StringUtils.clean_domain(url)
         if domain:
             match = self.intel.domain_map.get(domain)
             if match and match[0]: return match
 
-        # 2. Vault/Normalized Name Match (Score: 0.9 - The Vault)
+        # 2. Vault/Name Match (95%)
         norm_name = StringUtils.normalize(name)
         match = self.intel.name_map.get(norm_name)
         if match:
             if match[0]: return match
-            # If mapped to a domain pointer, try to resolve that domain
             if isinstance(match[1], str) and '.' in match[1]:
                 d_match = self.intel.domain_map.get(match[1])
                 if d_match and d_match[0]: return d_match
 
-        # 3. Skeleton Key Match (Score: 0.8 - The Ghost)
-        skel = StringUtils.get_skeleton(name)
-        if skel and len(skel) > 2:
-            match = self.intel.skeleton_map.get(skel)
-            if match and match[0]: return match
-
-        # 4. Language Permutations (Score: 0.7)
-        # Often Kotatsu just says "Mangadex", but extensions are "Mangadex (EN)"
-        langs = ["EN", "ID", "ES", "BR", "RU", "FR", "TR"]
-        for lang in langs:
-            test_name = f"{name} ({lang})"
-            norm_test = StringUtils.normalize(test_name)
-            match = self.intel.name_map.get(norm_test)
-            if match and match[0]: return match
-
-        # 5. Token Analysis (Score: 0.6)
-        # Slow but effective for "Asura Scans" vs "Asura Tl"
-        best_token_match = None
-        best_score = 0
-        for k_norm, entry in self.intel.name_map.items():
-            if not entry[0]: continue # Skip entries without ID
-            score = StringUtils.jaccard_similarity(name, entry[1])
-            if score > best_score:
-                best_score = score
-                best_token_match = entry
+        # 3. Neural Bridge (Permutations) (80%)
+        # Generates variants like "MangaDex (EN)", "MangaDex [EN]", "MangaDex"
+        variations = []
+        base = name
+        # Strip common suffixes
+        base = re.sub(r'(?i)s+(scans?|comics?|toons?|manga)$', '', base)
         
-        if best_score > 0.65: return best_token_match
+        langs = ["EN", "ID", "ES", "BR", "RU", "TR", "VI", "FR"]
+        variations.append(base) # "Asura"
+        for l in langs:
+            variations.append(f"{base} ({l})")
+            variations.append(f"{base} [{l}]")
+            variations.append(f"{name} ({l})")
+        
+        # Add suffixes back
+        for s in [" Scans", " Comics", " Toon", " Manga"]:
+            variations.append(base + s)
 
-        # 6. Fallback (Deterministic Hash)
+        for v in variations:
+            n = StringUtils.normalize(v)
+            m = self.intel.name_map.get(n)
+            if m and m[0]: return m
+
+        # 4. Fuzzy Token Match (60% - Aggressive)
+        best_match = None
+        best_score = 0
+        
+        # We search through known IDs to find a name that is close
+        # This is expensive but requested "Maximum Accuracy"
+        # To optimize, we check exact Jaccard overlap
+        
+        input_tokens = StringUtils.tokenize(name)
+        if len(input_tokens) > 0:
+            # Check against a sample of keys (full scan is too slow? No, 2000 is fine)
+            for key, entry in self.intel.name_map.items():
+                if not entry[0]: continue
+                
+                # Jaccard
+                score = StringUtils.jaccard_similarity(name, entry[1])
+                
+                # Bonus for substring
+                if StringUtils.normalize(entry[1]) in norm_name or norm_name in StringUtils.normalize(entry[1]):
+                    score += 0.3
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = entry
+
+        if best_score > 0.55: # Low threshold for aggressive matching
+            return best_match
+
+        # 5. Fallback
         final_name = name
-        # If we had a vault match (no ID), use the vault target domain as name base for hash
         if match and isinstance(match[1], str): final_name = match[1]
         
         return (StringUtils.java_hash(final_name), final_name)
 
-class ConnectivityProber:
+class LazarusProber:
     def __init__(self, intel):
         self.intel = intel
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-    def resolve_dead_links(self, items):
-        print(f"[Prober] Scanning {len(items)} voids for redirects...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-            future_to_item = {ex.submit(self._trace, i['url']): i for i in items}
+    def resurrect(self, items):
+        print(f"[Lazarus] Attempting to resurrect {len(items)} dead links...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+            future_to_item = {ex.submit(self._probe, i['url']): i for i in items}
             for fut in concurrent.futures.as_completed(future_to_item):
                 item = future_to_item[fut]
                 try:
-                    new_url = fut.result()
-                    if new_url:
-                        d = StringUtils.clean_domain(new_url)
-                        match = self.intel.domain_map.get(d)
-                        if match and match[0]:
-                            print(f"   -> Redirect Confirmed: {item['source']} -> {match[1]}")
-                            self.intel.name_map[StringUtils.normalize(item['source'])] = match
-                except:
-                    pass
+                    res = fut.result()
+                    if res:
+                        self.intel.domain_map[StringUtils.clean_domain(item['url'])] = res
+                        self.intel.name_map[StringUtils.normalize(item['source'])] = res
+                except: pass
 
-    def _trace(self, url):
+    def _probe(self, url):
         if not url: return None
         try:
-            return self.session.head(url, allow_redirects=True, timeout=5).url
-        except:
-            try:
-                r = self.session.get(url, allow_redirects=True, timeout=5, stream=True)
+            # Just HEAD first
+            r = self.session.head(url, allow_redirects=True, timeout=5)
+            final_url = r.url
+            d = StringUtils.clean_domain(final_url)
+            match = self.intel.domain_map.get(d)
+            if match and match[0]: return match
+            
+            # If HEAD failed to identify, try GET (slower)
+            if r.status_code >= 400:
+                r = self.session.get(url, allow_redirects=True, timeout=8, stream=True)
                 r.close()
-                return r.url
-            except: return None
+                d = StringUtils.clean_domain(r.url)
+                match = self.intel.domain_map.get(d)
+                if match and match[0]: return match
+                
+        except: return None
+        return None
 
 # --- Main ---
 
@@ -432,8 +474,8 @@ def main():
     # 1. Init
     intel = IntelligenceAgency()
     intel.initialize()
-    engine = MatchingEngine(intel)
-    prober = ConnectivityProber(intel)
+    engine = NeuralMatcher(intel)
+    prober = LazarusProber(intel)
 
     # 2. Read
     print("[System] Reading backup...")
@@ -447,7 +489,7 @@ def main():
         print(f"❌ Read Error: {e}")
         return
 
-    # 3. Probe Unknowns
+    # 3. Probe Unknowns (Lazarus Protocol)
     unknowns = []
     for x in data:
         m = x.get('manga', {})
@@ -455,7 +497,7 @@ def main():
         if sid not in intel.known_ids:
             unknowns.append({'source': m.get('source', ''), 'url': m.get('url', '')})
     
-    if unknowns: prober.resolve_dead_links(unknowns)
+    if unknowns: prober.resurrect(unknowns)
 
     # 4. Migrate
     backup = tachiyomi_pb2.Backup()
@@ -488,27 +530,28 @@ def main():
         bm.description = m.get('description', '')
         bm.thumbnailUrl = m.get('cover_url', '')
         bm.dateAdded = int(item.get('created_at', 0) * 1000) if item.get('created_at') else 0
-        
-        st = (m.get('state') or '').upper()
-        if st == 'ONGOING': bm.status = 1
-        elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
-        else: bm.status = 0
-        
-        for t in m.get('tags', []):
-            if t: bm.genre.append(str(t))
-
-    # 5. Export
-    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-    with gzip.open(out_path, 'wb') as f:
-        f.write(backup.SerializeToString())
-
-    print("="*50)
-    print(f"MIGRATION COMPLETE (v4.6.0)")
-    print(f"Total:      {len(data)}")
-    print(f"Official:   {stats['official']} (Precision Match)")
-    print(f"Fallback:   {stats['fallback']} (Deterministic)")
-    print(f"Output:     {out_path}")
-    print("="*50)
-
-if __name__ == "__main__":
-    main()
+‎        
+‎        st = (m.get('state') or '').upper()
+‎        if st == 'ONGOING': bm.status = 1
+‎        elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
+‎        else: bm.status = 0
+‎        
+‎        for t in m.get('tags', []):
+‎            if t: bm.genre.append(str(t))
+‎
+‎    # 5. Export
+‎    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+‎    with gzip.open(out_path, 'wb') as f:
+‎        f.write(backup.SerializeToString())
+‎
+‎    print("="*50)
+‎    print(f"MIGRATION COMPLETE (v6.9.0)")
+‎    print(f"Total:      {len(data)}")
+‎    print(f"Official:   {stats['official']} (Architect Match)")
+‎    print(f"Fallback:   {stats['fallback']}")
+‎    print(f"Output:     {out_path}")
+‎    print("="*50)
+‎
+‎if __name__ == "__main__":
+‎    main()
+‎
