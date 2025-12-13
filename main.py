@@ -25,12 +25,13 @@ KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# Cortex B Target
+# Cortex B Targets (Tri-Core Registry)
 TARGET_INDEXES = [
+    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"
 ]
 
-# Cortex A Target
+# Cortex A Targets (Doki Source)
 DOKI_REPO_API = "https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1"
 DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 
@@ -43,11 +44,11 @@ TLD_LIST = [
     "site", "club", "live", "world", "app", "dev", "tech", "space", "top", 
     "online", "info", "biz", "eu", "us", "uk", "ca", "au", "ru", "jp", "br", 
     "es", "fr", "de", "it", "nl", "pl", "in", "vn", "id", "th", "tw", "cn", 
-    "kr", "my", "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "co", "ve"
+    "kr", "my", "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "co", "ve",
+    "ink", "wiki", "moe", "fun", "games", "shop", "website", "social", "lat"
 ]
 
 STATIC_WISDOM = {
-    # Aggregators & Giants
     "MANGADEX": "mangadex.org", "MANGANATO": "manganato.com", "MANGAKAKALOT": "mangakakalot.com",
     "BATO": "bato.to", "BATOTO": "bato.to", "NHENTAI": "nhentai.net", "VIZ": "viz.com",
     "WEBTOONS": "webtoons.com", "TAPAS": "tapas.io", "BILIBILI": "bilibilicomics.com",
@@ -57,8 +58,6 @@ STATIC_WISDOM = {
     "MANGAHUB": "mangahub.io", "MANGABOX": "mangabox.me", "MANGAEDEN": "mangaeden.com",
     "MANGAHERE": "mangahere.cc", "MANGAFOX": "fanfox.net", "MANGAPANDA": "mangapanda.com",
     "MANGAREADER": "mangareader.to", "READMANGA": "readmanga.me", "MINTMANGA": "mintmanga.com",
-    
-    # Scanlation Groups
     "ASURA": "asuracomic.net", "ASURASCANS": "asuracomic.net", "FLAME": "flamecomics.com",
     "FLAMECOMICS": "flamecomics.com", "REAPER": "reaperscans.com", "REAPERSCANS": "reaperscans.com",
     "LUMINOUS": "luminousscans.com", "LUMINOUSSCANS": "luminousscans.com", "LEVIATAN": "leviatanscans.com",
@@ -108,54 +107,7 @@ STATIC_WISDOM = {
     "LAND": "manhualand.com", "MANHWAM": "manhwamanga.com", "MANHWAN": "manhwanew.com",
     "NEW": "manhwanew.com", "MANHWAR": "manhwaraw.com", "RAW": "manhwaraw.com",
     "MANHWAS": "manhwas.net", "MANHWAT": "manhwatop.com", "MANHWAW": "manhwaworld.com",
-    "WORLD": "manhwaworld.com", "MARTIAL": "martialscans.com", "MARTIALSCANS": "martialscans.com",
-    "MERAKI": "merakiscans.com", "MERAKISCANS": "merakiscans.com", "METHOD": "methodscans.com",
-    "METHODSCANS": "methodscans.com", "MNGDOOM": "mngdoom.com", "MOODY": "moodyscans.com",
-    "MOODYSCANS": "moodyscans.com", "MOON": "moonwitch.fr", "MOONWITCH": "moonwitch.fr",
-    "NEOX": "neoxscans.net", "NEOXSCANS": "neoxscans.net", "NIGHT": "nightscans.net",
-    "NIGHTSCANS": "nightscans.net", "NIGHTCOMIC": "nightcomic.com", "NIGHTCOMICS": "nightcomic.com",
-    "NONSTOP": "nonstopscans.com", "NONSTOPSCANS": "nonstopscans.com", "NOVA": "novascans.com",
-    "NOVASCANS": "novascans.com", "OLYMPUS": "olympusscans.com", "OLYMPUSSCANS": "olympusscans.com",
-    "PAIRS": "pairscans.com", "PAIRSCANS": "pairscans.com", "PHANTOM": "phantomscans.com",
-    "PHANTOMSCANS": "phantomscans.com", "PHOENIX": "phoenixscans.com", "PHOENIXSCANS": "phoenixscans.com",
-    "POCKET": "pocketcomics.com", "POCKETCOMICS": "pocketcomics.com", "PROJECT": "projectscan.com",
-    "PROJECTSCAN": "projectscan.com", "RAVEN": "ravenscans.com", "RAVENSCANS": "ravenscans.com",
-    "REALM": "realmscans.com", "REALMSCANS": "realmscans.com", "REAPER": "reaperscans.com",
-    "REAPERSCANS": "reaperscans.com", "RED": "redribbon.site", "REDRIBBON": "redribbon.site",
-    "RISING": "risingscans.com", "RISINGSCANS": "risingscans.com", "S2MANGA": "s2manga.com",
-    "S2SCANS": "s2scans.com", "SAMURAI": "samuraiscan.com", "SAMURAISCAN": "samuraiscan.com",
-    "SECRET": "secretscans.co", "SECRETSCANS": "secretscans.co", "SENSEI": "senseiscan.com",
-    "SENSEISCAN": "senseiscan.com", "SHOUJO": "shoujopower.com", "SHOUJOPOWER": "shoujopower.com",
-    "SIERRA": "sierramanga.com", "SIERRAMANGA": "sierramanga.com", "SILENT": "silentsky-scans.net",
-    "SILENTSKY": "silentsky-scans.net", "SK": "skscans.com", "SKSCANS": "skscans.com",
-    "SKY": "skymanga.co", "SKYMANGA": "skymanga.co", "SLEEPY": "sleepypanda.co",
-    "SLEEPYPANDA": "sleepypanda.co", "SOLO": "sololeveling.net", "SOLOLEVELING": "sololeveling.net",
-    "STAGE": "stagescans.com", "STAGESCANS": "stagescans.com", "STAR": "starboundscans.com",
-    "STARBOUND": "starboundscans.com", "SUGAR": "sugarbbscan.com", "SUGARBB": "sugarbbscan.com",
-    "SUN": "sunrisemanga.com", "SUNRISE": "sunrisemanga.com", "SUSHI": "sushiscan.su",
-    "SUSHISCAN": "sushiscan.su", "SWORD": "swordmanga.com", "SWORDMANGA": "swordmanga.com",
-    "TEAMS": "team1x1.com", "TEAM1X1": "team1x1.com", "TECB": "tecno-scan.com",
-    "TECNOSCAN": "tecno-scan.com", "TEMPEST": "tempestscans.com", "TEMPESTSCANS": "tempestscans.com",
-    "THEGUILD": "theguildscans.com", "GUILD": "theguildscans.com", "THENONAMES": "thenonames.com",
-    "NONAMES": "thenonames.com", "THREE": "threesqueens.com", "THREESQUEENS": "threesqueens.com",
-    "TIMELESS": "timelessleaf.com", "TIMELESSLEAF": "timelessleaf.com", "TITAN": "titanscans.com",
-    "TITANSCANS": "titanscans.com", "TOKYO": "tokyoghoul.site", "TOKYOGHOUL": "tokyoghoul.site",
-    "TRITINIA": "tritiniascans.ml", "TRITINIASCANS": "tritiniascans.ml", "TU": "tumangaonline.com",
-    "TUMANGAONLINE": "tumangaonline.com", "TMO": "tumangaonline.com", "TWILIGHT": "twilightscans.com",
-    "TWILIGHTSCANS": "twilightscans.com", "TWISTED": "twistedhelscans.com", "TWISTEDHEL": "twistedhelscans.com",
-    "VALHALLA": "valhallascans.com", "VALHALLASCANS": "valhallascans.com", "VORTEX": "vortexscans.org",
-    "VORTEXSCANS": "vortexscans.org", "WEBTOON": "webtoon.xyz", "WEBTOONXYZ": "webtoon.xyz",
-    "WEST": "westmanga.info", "WESTMANGA": "westmanga.info", "WHIM": "whimsubs.xyz",
-    "WHIMSUBS": "whimsubs.xyz", "WHITE": "whitecloudpavilion.com", "WHITECLOUD": "whitecloudpavilion.com",
-    "WINTER": "winterscan.com", "WINTERSCAN": "winterscan.com", "WITCH": "witchscans.com",
-    "WITCHSCANS": "witchscans.com", "WOLF": "wolfscans.com", "WOLFSCANS": "wolfscans.com",
-    "WORLD": "worldthree.com", "WORLDTHREE": "worldthree.com", "XIAN": "xianxia.com",
-    "XIANXIA": "xianxia.com", "YAOI": "yaoi.mobi", "YAOIMOBI": "yaoi.mobi",
-    "YGEN": "ygenscans.com", "YGENSCANS": "ygenscans.com", "YOKAI": "yokai.com",
-    "YOKAIJUMP": "yokai.com", "YOMANGA": "yomanga.info", "YOSH": "yosh.xyz",
-    "YOSHIKU": "yosh.xyz", "ZERO": "zeroscans.com", "ZEROSCANS": "zeroscans.com",
-    "ZIN": "zinmanga.com", "ZINMANGA": "zinmanga.com", "ZOO": "zooscans.com",
-    "ZOOSCANS": "zooscans.com"
+    "WORLD": "manhwaworld.com"
 }
 
 # --- UTILS ---
@@ -196,33 +148,26 @@ def get_root_domain(domain):
     return domain
 
 def normalize_name(name):
-    """
-    HEURISTIC: Strips TLDs if the name looks like a domain (e.g. 'manganato.com' -> 'MANGANATO').
-    """
+    # Standard cleanup
     if not name: return ""
     n = name.lower()
-    
     # TLD Stripping
     for tld in TLD_LIST:
         if n.endswith(f".{tld}"):
             n = n[:-len(tld)-1]
             break
-            
     n = n.upper()
     suffixes = [
-        " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", 
+        " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", " (RU)", " (JP)",
         " SCANS", " SCAN", " COMICS", " COMIC", " TOON", " TOONS",
         " MANGAS", " MANGA", " NOVELS", " NOVEL", " TEAM", " FANSUB",
         " WEBTOON"
     ]
     for s in suffixes:
         n = n.replace(s, "")
+    # Remove all non-alphanumeric (Skeleton Key)
     n = re.sub(r'[^A-Z0-9]', '', n)
     return n
-
-def tokenize_name(name):
-    """Breaks 'Asura Scans' into {'ASURA', 'SCANS'} for fuzzy set matching"""
-    return set(re.findall(r'[A-Z0-9]+', name.upper()))
 
 def get_session():
     s = requests.Session()
@@ -230,48 +175,47 @@ def get_session():
     s.mount('https://', HTTPAdapter(max_retries=retries))
     if GH_TOKEN:
         s.headers.update({'Authorization': f'token {GH_TOKEN}'})
-    # STEALTH HEADER
     s.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     })
     return s
 
 # --- 🛰️ CORTEX A: DOKI POLYGLOT SCANNER ---
 class DokiCortex:
     def __init__(self):
-        self.knowledge = {} # { Key: Domain }
+        self.knowledge = {} 
         self.session = get_session()
 
     def scan(self):
-        print("🛰️ Cortex A: Scanning DokiTeam Repo (Polyglot Mode)...")
+        print("🛰️ Cortex A: Scanning DokiTeam Repo (Code Breaker)...")
         try:
             resp = self.session.get(DOKI_REPO_API, timeout=30)
             if resp.status_code != 200:
-                print(f"⚠️ Repo API blocked: {resp.status_code}. Using Omni-Database.")
+                print(f"⚠️ Repo API blocked: {resp.status_code}.")
                 return self.knowledge
 
             tree = resp.json().get('tree', [])
-            kt_files = [f for f in tree if f['path'].endswith('.kt')]
+            kt_files = []
+            for f in tree:
+                path = f['path']
+                if path.endswith('.kt') and ('parsers/site' in path or 'src/main/kotlin' in path):
+                    kt_files.append(f)
             
-            print(f"   -> Found {len(kt_files)} files. Extracting domain DNA...")
+            print(f"   -> Found {len(kt_files)} source files. Breaking code DNA...")
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
                 futures = {executor.submit(self.process_file, f): f for f in kt_files}
                 for _ in concurrent.futures.as_completed(futures):
                     pass 
-
             print(f"   -> Cortex A Learned: {len(self.knowledge)} definitions.")
-
         except Exception as e:
             print(f"⚠️ Scanner Error: {e}")
-        
         return self.knowledge
 
     def process_file(self, file_obj):
         path = file_obj['path']
         filename = path.split('/')[-1].replace('.kt', '')
         url = DOKI_RAW_BASE + path
-        
         try:
             resp = self.session.get(url, timeout=15)
             if resp.status_code == 200:
@@ -280,49 +224,51 @@ class DokiCortex:
             pass
 
     def extract_dna(self, content, filename):
-        """
-        Polyglot Parsing: Looks for String Literals that resemble domains.
-        Uses Deep-Code Regex for baseUrl assignments.
-        """
+        # Clean comments
+        content = re.sub(r'//.*', '', content)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
         potential_domains = set()
         
-        # 1. Look for 'override val baseUrl = "..."' (Kotlin specific)
-        base_url_matches = re.findall(r'baseUrls*=s*"([^"]+)"', content)
+        # 1. Regex for class definitions
+        class_match = re.search(r'classs+([a-zA-Z0-9_]+)', content)
+        class_name = class_match.group(1) if class_match else filename
+
+        # 2. Regex for baseUrl
+        base_url_matches = re.findall(r'(?:override|private|protected|open)s+vals+baseUrls*=s*"([^"]+)"', content)
         for match in base_url_matches:
             d = get_domain(match)
             if d: potential_domains.add(d)
 
-        # 2. Heuristic String Literals
-        raw_strings = re.findall(r'"([^"s]+.[^"s]+)"', content)
-        for s in raw_strings:
-            if '/' in s and not s.startswith('http'): continue
-            if s.endswith('.kt') or s.endswith('.json'): continue
-            if any(tld in s for tld in ['.com', '.net', '.org']): # Quick check
-                 d = get_domain(s)
-                 if d: potential_domains.add(d)
+        # 3. Regex for Name
+        name_match = re.search(r'(?:override|private)s+vals+names*=s*"([^"]+)"', content)
+        explicit_name = name_match.group(1) if name_match else None
 
-        potential_ids = set(re.findall(r'"([A-Z0-9_]{3,})"', content))
+        # 4. Fallback strings
+        if not potential_domains:
+            raw_strings = re.findall(r'"([^"s]+.[^"s]+)"', content)
+            for s in raw_strings:
+                if any(tld in s for tld in ['.com', '.net', '.org', '.io']):
+                     d = get_domain(s)
+                     if d: potential_domains.add(d)
 
+        # Map Everything
         if potential_domains:
-            # Pick shortest length domain as primary (usually the main one)
             best_domain = sorted(list(potential_domains), key=len)[0]
-            self.knowledge[normalize_name(filename)] = best_domain
-            self.knowledge[filename] = best_domain
-            for pid in potential_ids:
-                self.knowledge[normalize_name(pid)] = best_domain
-                self.knowledge[pid] = best_domain
+            keys = [filename, class_name]
+            if explicit_name: keys.append(explicit_name)
+            
+            for k in keys:
+                self.knowledge[normalize_name(k)] = best_domain
+                self.knowledge[k] = best_domain
 
-# --- 🔮 STAGE 8: THE ORACLE (STEALTH PROBE) ---
+# --- 🔮 STAGE 8: THE ORACLE ---
 class Oracle:
     def __init__(self, brain):
         self.brain = brain
         self.session = get_session()
 
     def consult(self, unbridged_items):
-        """
-        Takes a list of {'source': name, 'url': url} that failed bridging.
-        Probes the URLs to find where they land (redirects).
-        """
         unique_urls = {}
         for item in unbridged_items:
             u = item.get('url')
@@ -330,46 +276,31 @@ class Oracle:
                 unique_urls[u] = item.get('source')
         
         if not unique_urls: return
-
-        print(f"🔮 Oracle: Active Stealth Probing {len(unique_urls)} unknown signals...")
+        print(f"🔮 Oracle: Probing {len(unique_urls)} signals...")
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             future_to_url = {executor.submit(self.probe, u): (u, s) for u, s in unique_urls.items()}
-            
-            discovered = 0
             for future in concurrent.futures.as_completed(future_to_url):
                 orig_url, orig_source = future_to_url[future]
                 try:
                     final_domain = future.result()
                     if final_domain:
-                        match = None
-                        if final_domain in self.brain.domain_map:
-                            match = self.brain.domain_map[final_domain]
-                        else:
-                             root = get_root_domain(final_domain)
-                             if root in self.brain.root_domain_map:
-                                 match = self.brain.root_domain_map[root]
-                        
+                        match = self.brain.resolve_domain(final_domain)
                         if match:
-                            discovered += 1
                             self.brain.name_map[normalize_name(orig_source)] = match
                             orig_domain = get_domain(orig_url)
                             if orig_domain:
                                 self.brain.domain_map[orig_domain] = match
                 except:
                     pass
-        
-        if discovered > 0:
-            print(f"🔮 Oracle: Insight Gained! Discovered {discovered} new bridges.")
 
     def probe(self, url):
         try:
-            # HEAD first with stealth headers
-            resp = self.session.head(url, allow_redirects=True, timeout=10)
+            resp = self.session.head(url, allow_redirects=True, timeout=8)
             return get_domain(resp.url)
         except:
             try:
-                resp = self.session.get(url, allow_redirects=True, timeout=10, stream=True)
+                resp = self.session.get(url, allow_redirects=True, timeout=8, stream=True)
                 resp.close()
                 return get_domain(resp.url)
             except:
@@ -381,202 +312,172 @@ class BridgeBrain:
         self.domain_map = {} 
         self.root_domain_map = {}
         self.name_map = {}   
+        self.skeleton_map = {} # SKELETON KEY
         self.doki_map = {}  
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v66.0 Omniscient)...")
-        
-        # 1. LIVE FETCH DOKI (Cortex A)
+        print("🧠 BridgeBrain: Initializing The Singularity (v68.0 Omni-Bridge)...")
         doki_cortex = DokiCortex()
         self.doki_map = doki_cortex.scan()
 
-        # 2. INGEST OMNI-DATABASE (Fallback)
-        print("📚 Loading Omni-Database (1000+ Entries)...")
+        print("📚 Loading Omni-Database...")
         for k, v in STATIC_WISDOM.items():
             if k not in self.doki_map:
                 self.doki_map[k] = v
                 self.doki_map[normalize_name(k)] = v
 
-        # 3. LIVE FETCH KEIYOUSHI (Cortex B)
         for url in TARGET_INDEXES:
-            print(f"📡 Cortex B: LIVE fetching Keiyoushi Registry...")
+            print(f"📡 Cortex B: Fetching {url.split('/')[-1]}...")
             try:
                 resp = self.session.get(url, timeout=30)
-‎                if resp.status_code == 200:
-‎                    data = resp.json()
-‎                    for ext in data:
-‎                        for src in ext.get('sources', []):
-‎                            sid = src.get('id')
-‎                            name = src.get('name')
-‎                            base = src.get('baseUrl')
-‎                            
-‎                            signed_id = to_signed_64(sid)
-‎                            domain = get_domain(base)
-‎                            norm = normalize_name(name)
-‎                            
-‎                            if domain: 
-‎                                self.domain_map[domain] = (signed_id, name)
-‎                                root = get_root_domain(domain)
-‎                                if root:
-‎                                    self.root_domain_map[root] = (signed_id, name)
-‎                            
-‎                            if norm: self.name_map[norm] = (signed_id, name)
-‎            except Exception as e:
-‎                print(f"⚠️ Index Error: {e}")
-‎
-‎    def synthesize_permutations(self, name):
-‎        """
-‎        OMNISCIENT PERMUTATIONS: 
-‎        Uses TLD_LIST to generate all likely domain variants.
-‎        """
-‎        n = normalize_name(name).lower()
-‎        if not n: return []
+                if resp.status_code == 200:
+                    self.parse_registry_json(resp.json())
+            except Exception as e:
+                print(f"⚠️ Index Error: {e}")
+
+    def parse_registry_json(self, data):
+        for ext in data:
+            for src in ext.get('sources', []):
+                sid = src.get('id')
+                name = src.get('name')
+                base = src.get('baseUrl')
+                
+                signed_id = to_signed_64(sid)
+                domain = get_domain(base)
+                norm = normalize_name(name)
+                
+                entry = (signed_id, name)
+                
+                if domain: 
+                    self.domain_map[domain] = entry
+                    root = get_root_domain(domain)
+                    if root: self.root_domain_map[root] = entry
+                
+                if norm: 
+                    self.name_map[norm] = entry
+                    self.skeleton_map[norm] = entry # Norm IS the skeleton
+
+    def resolve_domain(self, domain):
+        if not domain: return None
+        if domain in self.domain_map: return self.domain_map[domain]
+        root = get_root_domain(domain)
+        if root in self.root_domain_map: return self.root_domain_map[root]
+        return None
+
+    def synthesize_permutations(self, name):
+        n = normalize_name(name).lower()
+        if not n: return []
+        candidates = []
+        bases = [n, n.replace("scans", "")]
+        for base in bases:
+            for tld in TLD_LIST:
+                candidates.append(f"{base}.{tld}")
+        return candidates
+
+    def librarian_match(self, name):
+        """The Librarian: Fuzzy Matcher using Difflib"""
+        norm_keys = list(self.skeleton_map.keys())
+        norm_name = normalize_name(name)
+        
+        matches = difflib.get_close_matches(norm_name, norm_keys, n=1, cutoff=0.8)
+        if matches:
+            return self.skeleton_map[matches[0]]
+        return None
+
+    def identify(self, kotatsu_name, kotatsu_url):
+        # 1. URL/Domain Logic
+        manga_domain = get_domain(kotatsu_url)
+        match = self.resolve_domain(manga_domain)
+        if match: return match
+
+        # 2. Doki Learning
+        norm_name = normalize_name(kotatsu_name)
+        learned_domain = self.doki_map.get(norm_name) or self.doki_map.get(kotatsu_name)
+        if learned_domain:
+            match = self.resolve_domain(learned_domain)
+            if match: return match
+
+        # 3. Direct Name & Skeleton Key
+        if norm_name in self.name_map: return self.name_map[norm_name]
+        if norm_name in self.skeleton_map: return self.skeleton_map[norm_name]
+
+        # 4. TLD Heuristic (Name is URL)
+        if "." in kotatsu_name:
+             d = get_domain(kotatsu_name)
+             match = self.resolve_domain(d)
+             if match: return match
+
+        # 5. Quantum Permutations
+        for cand in self.synthesize_permutations(kotatsu_name):
+            d = get_domain(cand)
+            match = self.resolve_domain(d)
+            if match: return match
+
+        # 6. The Librarian (Fuzzy)
+        match = self.librarian_match(kotatsu_name)
+        if match: return match
+
+        # 7. FAIL-SAFE: Generate ID
+        # If we can't find it, we generate the ID Tachiyomi would expect for a generic source.
+        # This ensures it shows up in the library.
+        gen_id = java_string_hashcode(kotatsu_name)
+        return (gen_id, kotatsu_name)
+
+# --- CONVERTER ---
+
+def main():
+    if not os.path.exists(KOTATSU_INPUT):
+        print("❌ Backup.zip not found.")
+        return
+
+    brain = BridgeBrain()
+    brain.ingest()
+
+    print("\n🔄 STARTING MIGRATION (SINGULARITY OMNI-BRIDGE)...")
+    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
+        if not fav_file: raise Exception("No favourites file in zip.")
+        fav_data = json.loads(z.read(fav_file))
+
+    print(f"📊 Analyzing {len(fav_data)} entries...")
+    
+    unbridged_items = []
+    
+    # Check 1: Initial Pass
+    all_real_ids = set(x[0] for x in brain.domain_map.values())
+    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+    all_real_ids.update(x[0] for x in brain.name_map.values())
+    
+    for item in fav_data:
+        manga = item.get('manga', {})
+        url = manga.get('url', '') or manga.get('public_url', '')
+        source_name = manga.get('source', '')
+        final_id, _ = brain.identify(source_name, url)
+        if final_id not in all_real_ids:
+            unbridged_items.append({'source': source_name, 'url': url})
+
+    # Oracle Pass
+    if unbridged_items:
+        Oracle(brain).consult(unbridged_items)
+        all_real_ids = set(x[0] for x in brain.domain_map.values())
+        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+        all_real_ids.update(x[0] for x in brain.name_map.values())
+
+    # Final Pass
+    backup = tachiyomi_pb2.Backup()
+    registry_ids = set()
+    matches = 0
+
+    for item in fav_data:
+        manga = item.get('manga', {})
+        url = manga.get('url', '') or manga.get('public_url', '')
+        source_name = manga.get('source', '')
+
+        final_id, final_name = brain.identify(source_name, url)
 ‎        
-‎        clean = n.replace("scans", "").replace("scan", "").replace("comics", "").replace("comic", "")
-‎        
-‎        candidates = []
-‎        
-‎        # 1. Standard
-‎        bases = [n, clean, f"read{n}", f"{n}scans"]
-‎        
-‎        # 2. Iterate ALL TLDs
-‎        for base in bases:
-‎            for tld in TLD_LIST:
-‎                candidates.append(f"{base}.{tld}")
-‎                
-‎        return candidates
-‎
-‎    def fuzzy_match(self, name):
-‎        if not name: return None
-‎        tokens = tokenize_name(name)
-‎        if not tokens: return None
-‎
-‎        best_score = 0
-‎        best_match = None
-‎
-‎        for k_name, (sid, sname) in self.name_map.items():
-‎            k_tokens = tokenize_name(k_name)
-‎            if not k_tokens: continue
-‎            common = tokens.intersection(k_tokens)
-‎            if not common: continue
-‎            score = len(common) / max(len(tokens), len(k_tokens))
-‎            if score > best_score:
-‎                best_score = score
-‎                best_match = (sid, sname)
-‎        
-‎        if best_score >= 0.6: return best_match
-‎        return None
-‎
-‎    def identify(self, kotatsu_name, kotatsu_url):
-‎        # STAGE 1: THE GOD LINK (Reverse Engineering)
-‎        manga_domain = get_domain(kotatsu_url)
-‎        if manga_domain:
-‎            if manga_domain in self.domain_map:
-‎                return self.domain_map[manga_domain]
-‎            root = get_root_domain(manga_domain)
-‎            if root and root in self.root_domain_map:
-‎                return self.root_domain_map[root]
-‎
-‎        # STAGE 2: CORTEX A (Polyglot)
-‎        k_norm = normalize_name(kotatsu_name)
-‎        learned_domain = self.doki_map.get(k_norm) or self.doki_map.get(kotatsu_name)
-‎        
-‎        if learned_domain:
-‎            if learned_domain in self.domain_map:
-‎                return self.domain_map[learned_domain]
-‎            learned_root = get_root_domain(learned_domain)
-‎            if learned_root and learned_root in self.root_domain_map:
-‎                return self.root_domain_map[learned_root]
-‎
-‎        # STAGE 3: DIRECT NAME (Enhanced Normalization)
-‎        if k_norm in self.name_map:
-‎            return self.name_map[k_norm]
-‎        
-‎        # TLD Heuristic Check: If Kotatsu Name matches a Domain directly
-‎        # e.g. Name="Manganato.com" -> Domain="manganato.com"
-‎        if "." in kotatsu_name:
-‎             possible_domain = get_domain(kotatsu_name)
-‎             if possible_domain and possible_domain in self.domain_map:
-‎                 return self.domain_map[possible_domain]
-‎
-‎        # STAGE 4: QUANTUM PERMUTATION (Omniscient)
-‎        for candidate in self.synthesize_permutations(kotatsu_name):
-‎            cand_domain = get_domain(candidate)
-‎            if cand_domain in self.domain_map:
-‎                return self.domain_map[cand_domain]
-‎            cand_root = get_root_domain(cand_domain)
-‎            if cand_root and cand_root in self.root_domain_map:
-‎                return self.root_domain_map[cand_root]
-‎
-‎        # STAGE 5: FUZZY SEMANTIC
-‎        fuzzy = self.fuzzy_match(kotatsu_name)
-‎        if fuzzy: return fuzzy
-‎
-‎        # FALLBACK
-‎        gen_id = java_string_hashcode(kotatsu_name)
-‎        return (gen_id, kotatsu_name)
-‎
-‎# --- CONVERTER ---
-‎
-‎def main():
-‎    if not os.path.exists(KOTATSU_INPUT):
-‎        print("❌ Backup.zip not found.")
-‎        return
-‎
-‎    brain = BridgeBrain()
-‎    brain.ingest()
-‎
-‎    print("\n🔄 STARTING MIGRATION (SINGULARITY OMNISCIENT)...")
-‎    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
-‎        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
-‎        if not fav_file: raise Exception("No favourites file in zip.")
-‎        fav_data = json.loads(z.read(fav_file))
-‎
-‎    print(f"📊 Analyzing {len(fav_data)} entries...")
-‎    
-‎    # --- PASS 1: INITIAL IDENTIFICATION ---
-‎    unbridged_items = []
-‎    
-‎    # Helper to check if ID is real
-‎    all_real_ids = set(x[0] for x in brain.domain_map.values())
-‎    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-‎    all_real_ids.update(x[0] for x in brain.name_map.values())
-‎    
-‎    for item in fav_data:
-‎        manga = item.get('manga', {})
-‎        url = manga.get('url', '') or manga.get('public_url', '')
-‎        source_name = manga.get('source', '')
-‎        
-‎        final_id, _ = brain.identify(source_name, url)
-‎        
-‎        if final_id not in all_real_ids:
-‎            unbridged_items.append({'source': source_name, 'url': url})
-‎
-‎    # --- STAGE 6: ORACLE CONSULTATION ---
-‎    if unbridged_items:
-‎        oracle = Oracle(brain)
-‎        oracle.consult(unbridged_items)
-‎        # Update set of real IDs after Oracle might have added new ones
-‎        all_real_ids = set(x[0] for x in brain.domain_map.values())
-‎        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-‎        all_real_ids.update(x[0] for x in brain.name_map.values())
-‎
-‎    # --- PASS 2: FINAL GENERATION ---
-‎    backup = tachiyomi_pb2.Backup()
-‎    registry_ids = set()
-‎    matches = 0
-‎
-‎    for item in fav_data:
-‎        manga = item.get('manga', {})
-‎        url = manga.get('url', '') or manga.get('public_url', '')
-‎        source_name = manga.get('source', '')
-‎        
-‎        # Second call to identify will use new Oracle knowledge
-‎        final_id, final_name = brain.identify(source_name, url)
-‎        
-‎        is_bridged = final_id in all_real_ids
-‎        if is_bridged: matches += 1
+‎        # Count "Real" matches vs "Generated" matches
+‎        if final_id in all_real_ids: matches += 1
 ‎            
 ‎        if final_id not in registry_ids:
 ‎            s = tachiyomi_pb2.BackupSource()
@@ -594,7 +495,7 @@ class BridgeBrain:
 ‎        bm.description = manga.get('description', '')
 ‎        bm.thumbnailUrl = manga.get('cover_url', '')
 ‎        bm.dateAdded = int(item.get('created_at', 0))
-‎        
+‎
 ‎        state = (manga.get('state') or '').upper()
 ‎        if state == 'ONGOING': bm.status = 1
 ‎        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
@@ -609,9 +510,9 @@ class BridgeBrain:
 ‎    with gzip.open(out_path, 'wb') as f:
 ‎        f.write(backup.SerializeToString())
 ‎
-‎    print(f"✅ SUCCESS. Connection Rate: {matches}/{len(fav_data)}.")
+‎    print(f"✅ SUCCESS. Bridge Rate: {matches}/{len(fav_data)} confirmed. Others generated.")
 ‎    print(f"📂 Saved to {out_path}")
 ‎
 ‎if __name__ == "__main__":
 ‎    main()
-‎
+ 
