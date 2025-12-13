@@ -13,8 +13,8 @@ const PROTO_FILE = path.join(__dirname, 'schema.proto');
 
 // --- Live Repos ---
 const KEIYOUSHI_URL = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json';
-// Use Tree API for reliable recursive fetching
-const DOKI_TREE_API = 'https://api.github.com/repos/DokiTeam/doki-exts/git/trees/master?recursive=1';
+// V21 FIX: Use 'base' branch and check specific parsers path
+const DOKI_TREE_API = 'https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1';
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
@@ -31,7 +31,7 @@ const ID_SEED = 1125899906842597n;
 // --- Network Helpers ---
 async function fetchJson(url) {
     return new Promise((resolve) => {
-        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge-v20' } };
+        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge-v21' } };
         if (process.env.GH_TOKEN && url.includes('github.com')) opts.headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
         https.get(url, opts, (res) => {
             let data = '';
@@ -64,21 +64,21 @@ async function loadBridgeData() {
         console.warn("⚠️ [Bridge] Failed to load Keiyoushi index.");
     }
 
-    // 2. Fetch Doki File List via Tree API (Fixes "Indexed 0" issue)
+    // 2. Fetch Doki File List via Tree API (Fixes "Indexed 0" issue - now uses 'base' branch)
     const dData = await fetchJson(DOKI_TREE_API);
     if (dData && Array.isArray(dData.tree)) {
         dData.tree.forEach(node => {
-            // We look for Kotlin files in the parsers directory
-            if (node.path.endsWith('.kt') && node.path.includes('parsers')) {
+            // V21 FIX: Target the specific site parsers directory
+            if (node.path.endsWith('.kt') && node.path.includes('parsers/site')) {
                 const filename = path.basename(node.path, '.kt');
-                // Exclude common base classes or utils if needed
-                if (filename !== 'Parser' && filename !== 'SiteParser') {
+                // Exclude generic factories
+                if (filename !== 'SiteParser') {
                     DOKI_CLASSES.push(filename);
                     DOKI_LOWER_MAP[filename.toLowerCase()] = filename;
                 }
             }
         });
-        console.log(`✅ [Bridge] Indexed ${DOKI_CLASSES.length} Kotatsu parsers from Git Tree.`);
+        console.log(`✅ [Bridge] Indexed ${DOKI_CLASSES.length} Kotatsu parsers from Git Tree (base).`);
     } else {
         console.warn("⚠️ [Bridge] Failed to load Doki Tree. Using Fallbacks.");
         // Emergency Fallbacks
@@ -211,7 +211,7 @@ const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) 
 // --- MAIN ---
 
 async function main() {
-    console.log('📦 Initializing Migration Kit (v20.0 True Bridge)...');
+    console.log('📦 Initializing Migration Kit (v21.0 True Bridge)...');
     await loadBridgeData();
 
     console.log('📖 Loading Protobuf Schema...');
@@ -236,7 +236,7 @@ async function kotatsuToTachiyomi(BackupMessage) {
 
     zip.getEntries().forEach(e => {
         const n = e.name;
-        // Handle both strict (v19) and legacy formats
+        // Handle both strict (v21) and legacy formats
         if(n === 'favourites' || n === 'favourites.json') favouritesData = JSON.parse(e.getData().toString('utf8'));
         if(n === 'categories' || n === 'categories.json') categoriesData = JSON.parse(e.getData().toString('utf8'));
         if(n === 'history' || n === 'history.json') historyData = JSON.parse(e.getData().toString('utf8'));
@@ -405,4 +405,4 @@ async function tachiyomiToKotatsu(BackupMessage) {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
-                              
+               
