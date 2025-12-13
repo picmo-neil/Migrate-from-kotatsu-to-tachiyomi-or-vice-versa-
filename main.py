@@ -25,10 +25,11 @@ KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# Cortex B Targets (Tri-Core Registry)
+# Cortex B Targets 
 TARGET_INDEXES = [
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
-    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"
+    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.html"
 ]
 
 # Cortex A Targets (Doki Source)
@@ -148,10 +149,8 @@ def get_root_domain(domain):
     return domain
 
 def normalize_name(name):
-    # Standard cleanup
     if not name: return ""
     n = name.lower()
-    # TLD Stripping
     for tld in TLD_LIST:
         if n.endswith(f".{tld}"):
             n = n[:-len(tld)-1]
@@ -165,7 +164,6 @@ def normalize_name(name):
     ]
     for s in suffixes:
         n = n.replace(s, "")
-    # Remove all non-alphanumeric (Skeleton Key)
     n = re.sub(r'[^A-Z0-9]', '', n)
     return n
 
@@ -187,7 +185,7 @@ class DokiCortex:
         self.session = get_session()
 
     def scan(self):
-        print("🛰️ Cortex A: Scanning DokiTeam Repo (Code Breaker)...")
+        print("🛰️ Cortex A: Scanning DokiTeam Repo (Deep Code)...")
         try:
             resp = self.session.get(DOKI_REPO_API, timeout=30)
             if resp.status_code != 200:
@@ -201,7 +199,7 @@ class DokiCortex:
                 if path.endswith('.kt') and ('parsers/site' in path or 'src/main/kotlin' in path):
                     kt_files.append(f)
             
-            print(f"   -> Found {len(kt_files)} source files. Breaking code DNA...")
+            print(f"   -> Found {len(kt_files)} source files. Analyzing Kotlin DNA...")
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
                 futures = {executor.submit(self.process_file, f): f for f in kt_files}
@@ -224,27 +222,34 @@ class DokiCortex:
             pass
 
     def extract_dna(self, content, filename):
-        # Clean comments
+        # 1. Clean comments
         content = re.sub(r'//.*', '', content)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
 
         potential_domains = set()
         
-        # 1. Regex for class definitions
+        # 2. Deep Class Parsing
         class_match = re.search(r'classs+([a-zA-Z0-9_]+)', content)
         class_name = class_match.group(1) if class_match else filename
 
-        # 2. Regex for baseUrl
+        # 3. BaseURL Extraction
         base_url_matches = re.findall(r'(?:override|private|protected|open)s+vals+baseUrls*=s*"([^"]+)"', content)
         for match in base_url_matches:
             d = get_domain(match)
             if d: potential_domains.add(d)
 
-        # 3. Regex for Name
+        # 4. Explicit Name Extraction
         name_match = re.search(r'(?:override|private)s+vals+names*=s*"([^"]+)"', content)
         explicit_name = name_match.group(1) if name_match else None
+        
+        # 5. Explicit ID Extraction (Parsing Longs)
+        explicit_id = None
+        id_match = re.search(r'(?:override|private)s+vals+ids*=s*(d+)L?', content)
+        if id_match:
+             try: explicit_id = int(id_match.group(1))
+             except: pass
 
-        # 4. Fallback strings
+        # 6. Fallback String Literals
         if not potential_domains:
             raw_strings = re.findall(r'"([^"s]+.[^"s]+)"', content)
             for s in raw_strings:
@@ -312,12 +317,12 @@ class BridgeBrain:
         self.domain_map = {} 
         self.root_domain_map = {}
         self.name_map = {}   
-        self.skeleton_map = {} # SKELETON KEY
+        self.skeleton_map = {}
         self.doki_map = {}  
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v68.0 Omni-Bridge)...")
+        print("🧠 BridgeBrain: Initializing The Singularity (v69.0 God Mode)...")
         doki_cortex = DokiCortex()
         self.doki_map = doki_cortex.scan()
 
@@ -331,8 +336,14 @@ class BridgeBrain:
             print(f"📡 Cortex B: Fetching {url.split('/')[-1]}...")
             try:
                 resp = self.session.get(url, timeout=30)
-                if resp.status_code == 200:
-                    self.parse_registry_json(resp.json())
+                # Handle JSON
+                if url.endswith('.json'):
+                    if resp.status_code == 200:
+                        self.parse_registry_json(resp.json())
+                # Handle HTML (Scraping Fallback)
+                elif url.endswith('.html'):
+                    if resp.status_code == 200:
+                        self.parse_registry_html(resp.text)
             except Exception as e:
                 print(f"⚠️ Index Error: {e}")
 
@@ -356,7 +367,28 @@ class BridgeBrain:
                 
                 if norm: 
                     self.name_map[norm] = entry
-                    self.skeleton_map[norm] = entry # Norm IS the skeleton
+                    self.skeleton_map[norm] = entry 
+
+    def parse_registry_html(self, html):
+        # Fallback HTML Scraper looking for data-id attributes
+        print("   -> Scanning HTML structure for hidden IDs...")
+        # Regex to find patterns like: data-id="12345" ... >Name<
+        # This is a broad heuristic
+        try:
+             ids = re.findall(r'data-id="(-?d+)"', html)
+             names = re.findall(r'class="name"[^>]*>([^<]+)<', html)
+             # If rudimentary sync is possible
+             if len(ids) > 0 and len(ids) == len(names):
+                 for i in range(len(ids)):
+                     sid = int(ids[i])
+                     name = names[i]
+                     signed_id = to_signed_64(sid)
+                     norm = normalize_name(name)
+                     if norm and norm not in self.name_map:
+                         self.name_map[norm] = (signed_id, name)
+                         self.skeleton_map[norm] = (signed_id, name)
+        except:
+             pass
 
     def resolve_domain(self, domain):
         if not domain: return None
@@ -376,11 +408,11 @@ class BridgeBrain:
         return candidates
 
     def librarian_match(self, name):
-        """The Librarian: Fuzzy Matcher using Difflib"""
+        """The Librarian: Fuzzy Matcher"""
         norm_keys = list(self.skeleton_map.keys())
         norm_name = normalize_name(name)
         
-        matches = difflib.get_close_matches(norm_name, norm_keys, n=1, cutoff=0.8)
+        matches = difflib.get_close_matches(norm_name, norm_keys, n=1, cutoff=0.85)
         if matches:
             return self.skeleton_map[matches[0]]
         return None
@@ -408,7 +440,7 @@ class BridgeBrain:
              match = self.resolve_domain(d)
              if match: return match
 
-        # 5. Quantum Permutations
+        # 5. Permutations
         for cand in self.synthesize_permutations(kotatsu_name):
             d = get_domain(cand)
             match = self.resolve_domain(d)
@@ -418,9 +450,11 @@ class BridgeBrain:
         match = self.librarian_match(kotatsu_name)
         if match: return match
 
-        # 7. FAIL-SAFE: Generate ID
-        # If we can't find it, we generate the ID Tachiyomi would expect for a generic source.
-        # This ensures it shows up in the library.
+        # 7. FALLBACK
+        # If all else fails, generate a deterministic hash ID. 
+        # Tachiyomi will accept this. If the extension is eventually installed 
+        # and has a different ID, migration within app is easy. 
+        # But this ensures the entry IS created.
         gen_id = java_string_hashcode(kotatsu_name)
         return (gen_id, kotatsu_name)
 
@@ -433,50 +467,50 @@ def main():
 
     brain = BridgeBrain()
     brain.ingest()
-
-    print("\n🔄 STARTING MIGRATION (SINGULARITY OMNI-BRIDGE)...")
-    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
-        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
-        if not fav_file: raise Exception("No favourites file in zip.")
-        fav_data = json.loads(z.read(fav_file))
-
-    print(f"📊 Analyzing {len(fav_data)} entries...")
-    
-    unbridged_items = []
-    
-    # Check 1: Initial Pass
-    all_real_ids = set(x[0] for x in brain.domain_map.values())
-    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-    all_real_ids.update(x[0] for x in brain.name_map.values())
-    
-    for item in fav_data:
-        manga = item.get('manga', {})
-        url = manga.get('url', '') or manga.get('public_url', '')
-        source_name = manga.get('source', '')
-        final_id, _ = brain.identify(source_name, url)
-        if final_id not in all_real_ids:
-            unbridged_items.append({'source': source_name, 'url': url})
-
-    # Oracle Pass
-    if unbridged_items:
-        Oracle(brain).consult(unbridged_items)
-        all_real_ids = set(x[0] for x in brain.domain_map.values())
-        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-        all_real_ids.update(x[0] for x in brain.name_map.values())
-
-    # Final Pass
-    backup = tachiyomi_pb2.Backup()
-    registry_ids = set()
-    matches = 0
-
-    for item in fav_data:
-        manga = item.get('manga', {})
-        url = manga.get('url', '') or manga.get('public_url', '')
-        source_name = manga.get('source', '')
-
-        final_id, final_name = brain.identify(source_name, url)
+‎
+‎    print("\n🔄 STARTING MIGRATION (SINGULARITY GOD MODE)...")
+‎    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+‎        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
+‎        if not fav_file: raise Exception("No favourites file in zip.")
+‎        fav_data = json.loads(z.read(fav_file))
+‎
+‎    print(f"📊 Analyzing {len(fav_data)} entries...")
+‎    
+‎    unbridged_items = []
+‎    
+‎    # Check 1: Initial Pass
+‎    all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.name_map.values())
+‎    
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
+‎        final_id, _ = brain.identify(source_name, url)
+‎        if final_id not in all_real_ids:
+‎            unbridged_items.append({'source': source_name, 'url': url})
+‎
+‎    # Oracle Pass
+‎    if unbridged_items:
+‎        Oracle(brain).consult(unbridged_items)
+‎        all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.name_map.values())
+‎
+‎    # Final Pass
+‎    backup = tachiyomi_pb2.Backup()
+‎    registry_ids = set()
+‎    matches = 0
+‎
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
 ‎        
-‎        # Count "Real" matches vs "Generated" matches
+‎        final_id, final_name = brain.identify(source_name, url)
+‎        
+‎        
 ‎        if final_id in all_real_ids: matches += 1
 ‎            
 ‎        if final_id not in registry_ids:
@@ -495,7 +529,7 @@ def main():
 ‎        bm.description = manga.get('description', '')
 ‎        bm.thumbnailUrl = manga.get('cover_url', '')
 ‎        bm.dateAdded = int(item.get('created_at', 0))
-‎
+‎        
 ‎        state = (manga.get('state') or '').upper()
 ‎        if state == 'ONGOING': bm.status = 1
 ‎        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
@@ -510,9 +544,9 @@ def main():
 ‎    with gzip.open(out_path, 'wb') as f:
 ‎        f.write(backup.SerializeToString())
 ‎
-‎    print(f"✅ SUCCESS. Bridge Rate: {matches}/{len(fav_data)} confirmed. Others generated.")
+‎    print(f"✅ SUCCESS. Real Connections: {matches}/{len(fav_data)}. God Mode: {len(fav_data)}/{len(fav_data)} migrated.")
 ‎    print(f"📂 Saved to {out_path}")
 ‎
 ‎if __name__ == "__main__":
 ‎    main()
- 
+‎
