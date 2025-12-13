@@ -25,7 +25,7 @@ KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# Cortex B Targets 
+# Cortex B Targets (Omni-Net)
 TARGET_INDEXES = [
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
@@ -327,7 +327,7 @@ class BridgeBrain:
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v70.0 God Mode)...")
+        print("🧠 BridgeBrain: Initializing The Singularity (v71.0 God Mode)...")
         doki_cortex = DokiCortex()
         self.doki_map = doki_cortex.scan()
 
@@ -451,7 +451,7 @@ class BridgeBrain:
              match = self.resolve_domain(d)
              if match: return match
 
-        # 5. Permutations
+        # 5. Quantum Permutations
         for cand in self.synthesize_permutations(kotatsu_name):
             d = get_domain(cand)
             match = self.resolve_domain(d)
@@ -459,112 +459,111 @@ class BridgeBrain:
 
         # 6. The Librarian (Fuzzy)
         match = self.librarian_match(kotatsu_name)
-‎        if match: return match
+‎        if match: return match
 ‎
-‎        # 7. FALLBACK
-‎        # Deterministic generation ensures the manga is always migrated.
-‎        print(f"   ⚠️ God Mode: Generating ID for {kotatsu_name}")
-‎        gen_id = java_string_hashcode(kotatsu_name)
-‎        return (gen_id, kotatsu_name)
+‎        # 7. FALLBACK
+‎        # Deterministic generation ensures the manga is always migrated.
+‎        print(f"   ⚠️ God Mode: Generating ID for {kotatsu_name}")
+‎        gen_id = java_string_hashcode(kotatsu_name)
+‎        return (gen_id, kotatsu_name)
 ‎
 ‎# --- CONVERTER ---
 ‎
 ‎def main():
-‎    if not os.path.exists(KOTATSU_INPUT):
-‎        print("❌ Backup.zip not found.")
-‎        return
+‎    if not os.path.exists(KOTATSU_INPUT):
+‎        print("❌ Backup.zip not found.")
+‎        return
 ‎
-‎    brain = BridgeBrain()
-‎    brain.ingest()
+‎    brain = BridgeBrain()
+‎    brain.ingest()
 ‎
-‎    print("\n🔄 STARTING MIGRATION (SINGULARITY GOD MODE)...")
-‎    try:
-‎        with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
-‎            fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
-‎            if not fav_file: raise Exception("No favourites file in zip.")
-‎            fav_data = json.loads(z.read(fav_file))
-‎    except Exception as e:
-‎        print(f"❌ Zip Error: {e}")
-‎        return
+‎    print("\n🔄 STARTING MIGRATION (SINGULARITY GOD MODE)...")
+‎    try:
+‎        with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+‎            fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
+‎            if not fav_file: raise Exception("No favourites file in zip.")
+‎            fav_data = json.loads(z.read(fav_file))
+‎    except Exception as e:
+‎        print(f"❌ Zip Error: {e}")
+‎        return
 ‎
-‎    print(f"📊 Analyzing {len(fav_data)} entries...")
-‎    
-‎    unbridged_items = []
-‎    
-‎    # Check 1: Initial Pass
-‎    all_real_ids = set(x[0] for x in brain.domain_map.values())
-‎    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-‎    all_real_ids.update(x[0] for x in brain.name_map.values())
-‎    
-‎    for item in fav_data:
-‎        manga = item.get('manga', {})
-‎        url = manga.get('url', '') or manga.get('public_url', '')
-‎        source_name = manga.get('source', '')
-‎        final_id, _ = brain.identify(source_name, url)
-‎        if final_id not in all_real_ids:
-‎            unbridged_items.append({'source': source_name, 'url': url})
+‎    print(f"📊 Analyzing {len(fav_data)} entries...")
+‎    
+‎    unbridged_items = []
+‎    
+‎    # Check 1: Initial Pass
+‎    all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.name_map.values())
+‎    
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
+‎        final_id, _ = brain.identify(source_name, url)
+‎        if final_id not in all_real_ids:
+‎            unbridged_items.append({'source': source_name, 'url': url})
 ‎
-‎    # Oracle Pass
-‎    if unbridged_items:
-‎        Oracle(brain).consult(unbridged_items)
-‎        all_real_ids = set(x[0] for x in brain.domain_map.values())
-‎        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
-‎        all_real_ids.update(x[0] for x in brain.name_map.values())
+‎    # Oracle Pass
+‎    if unbridged_items:
+‎        Oracle(brain).consult(unbridged_items)
+‎        all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.name_map.values())
 ‎
-‎    # Final Pass
-‎    backup = tachiyomi_pb2.Backup()
-‎    registry_ids = set()
-‎    matches = 0
+‎    # Final Pass
+‎    backup = tachiyomi_pb2.Backup()
+‎    registry_ids = set()
+‎    matches = 0
 ‎
-‎    for item in fav_data:
-‎        manga = item.get('manga', {})
-‎        url = manga.get('url', '') or manga.get('public_url', '')
-‎        source_name = manga.get('source', '')
-‎        
-‎        final_id, final_name = brain.identify(source_name, url)
-‎        
-‎        
-‎        if final_id in all_real_ids: matches += 1
-‎            
-‎        if final_id not in registry_ids:
-‎            s = tachiyomi_pb2.BackupSource()
-‎            s.sourceId = final_id
-‎            s.name = final_name
-‎            backup.backupSources.append(s)
-‎            registry_ids.add(final_id)
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
+‎        
+‎        final_id, final_name = brain.identify(source_name, url)
+‎        
+‎        
+‎        if final_id in all_real_ids: matches += 1
+‎            
+‎        if final_id not in registry_ids:
+‎            s = tachiyomi_pb2.BackupSource()
+‎            s.sourceId = final_id
+‎            s.name = final_name
+‎            backup.backupSources.append(s)
+‎            registry_ids.add(final_id)
 ‎
-‎        bm = backup.backupManga.add()
-‎        bm.source = final_id
-‎        bm.url = url 
-‎        bm.title = manga.get('title', '')
-‎        bm.artist = manga.get('artist', '')
-‎        bm.author = manga.get('author', '')
-‎        bm.description = manga.get('description', '')
-‎        bm.thumbnailUrl = manga.get('cover_url', '')
-‎        bm.dateAdded = int(item.get('created_at', 0))
-‎        
-‎        state = (manga.get('state') or '').upper()
-‎        if state == 'ONGOING': bm.status = 1
-‎        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
-‎        else: bm.status = 0
-‎        
-‎        tags = manga.get('tags', [])
-‎        if tags:
-‎            for t in tags:
-‎                if t: bm.genre.append(str(t))
+‎        bm = backup.backupManga.add()
+‎        bm.source = final_id
+‎        bm.url = url 
+‎        bm.title = manga.get('title', '')
+‎        bm.artist = manga.get('artist', '')
+‎        bm.author = manga.get('author', '')
+‎        bm.description = manga.get('description', '')
+‎        bm.thumbnailUrl = manga.get('cover_url', '')
+‎        bm.dateAdded = int(item.get('created_at', 0))
+‎        
+‎        state = (manga.get('state') or '').upper()
+‎        if state == 'ONGOING': bm.status = 1
+‎        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
+‎        else: bm.status = 0
+‎        
+‎        tags = manga.get('tags', [])
+‎        if tags:
+‎            for t in tags:
+‎                if t: bm.genre.append(str(t))
 ‎
-‎    out_path = os.path.join(OUTPUT_DIR, 'Backup.tachibk')
-‎    
-‎    # Virtual Test
-‎    if not backup.backupManga:
-‎        print("⚠️ Warning: No manga entries generated.")
-‎    
-‎    with gzip.open(out_path, 'wb') as f:
-‎        f.write(backup.SerializeToString())
+‎    out_path = os.path.join(OUTPUT_DIR, 'Backup.tachibk')
+‎    
+‎    # Virtual Test
+‎    if not backup.backupManga:
+‎        print("⚠️ Warning: No manga entries generated.")
+‎    
+‎    with gzip.open(out_path, 'wb') as f:
+‎        f.write(backup.SerializeToString())
 ‎
-‎    print(f"✅ SUCCESS. Real Connections: {matches}/{len(fav_data)}. God Mode: {len(fav_data)}/{len(fav_data)} migrated.")
-‎    print(f"📂 Saved to {out_path}")
+‎    print(f"✅ SUCCESS. Real Connections: {matches}/{len(fav_data)}. God Mode: {len(fav_data)}/{len(fav_data)} migrated.")
+‎    print(f"📂 Saved to {out_path}")
 ‎
 ‎if __name__ == "__main__":
-‎    main()
-‎
+‎    main()
