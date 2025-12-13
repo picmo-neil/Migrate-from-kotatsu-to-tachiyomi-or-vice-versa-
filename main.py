@@ -37,8 +37,7 @@ DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-# --- DATABASE (1000+ FALLBACK) ---
-# A consolidated list of the most popular sources to ensure connectivity.
+# --- OMNI-DATABASE (1000+ FALLBACK) ---
 STATIC_WISDOM = {
     # Aggregators & Giants
     "MANGADEX": "mangadex.org", "MANGANATO": "manganato.com", "MANGAKAKALOT": "mangakakalot.com",
@@ -283,7 +282,77 @@ class DokiCortex:
                 self.knowledge[normalize_name(pid)] = best_domain
                 self.knowledge[pid] = best_domain
 
-# ---  BRIDGE BRAIN ---
+# --- 🔮 STAGE 6: THE ORACLE (ACTIVE WEB CRAWLER) ---
+class Oracle:
+    def __init__(self, brain):
+        self.brain = brain
+        self.session = get_session()
+
+    def consult(self, unbridged_items):
+        """
+        Takes a list of {'source': name, 'url': url} that failed bridging.
+        Probes the URLs to find where they land (redirects).
+        Updates the Brain with new Knowledge.
+        """
+        unique_urls = {}
+        for item in unbridged_items:
+            u = item.get('url')
+            if u and u.startswith('http'):
+                unique_urls[u] = item.get('source')
+        
+        if not unique_urls: return
+
+        print(f"🔮 Oracle: Active Probing {len(unique_urls)} unknown signals...")
+        
+        # Limit workers to avoid spamming
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            future_to_url = {executor.submit(self.probe, u): (u, s) for u, s in unique_urls.items()}
+            
+            discovered = 0
+            for future in concurrent.futures.as_completed(future_to_url):
+                orig_url, orig_source = future_to_url[future]
+                try:
+                    final_domain = future.result()
+                    if final_domain:
+                        # Check if this resolved domain exists in our brain
+                        match = None
+                        if final_domain in self.brain.domain_map:
+                            match = self.brain.domain_map[final_domain]
+                        else:
+                             root = get_root_domain(final_domain)
+                             if root in self.brain.root_domain_map:
+                                 match = self.brain.root_domain_map[root]
+                        
+                        if match:
+                            # WE FOUND A LINK!
+                            discovered += 1
+                            # Map the Original Source Name to this ID
+                            self.brain.name_map[normalize_name(orig_source)] = match
+                            # Map the Original Domain to this ID
+                            orig_domain = get_domain(orig_url)
+                            if orig_domain:
+                                self.brain.domain_map[orig_domain] = match
+                except:
+                    pass
+        
+        if discovered > 0:
+            print(f"🔮 Oracle: Insight Gained! Discovered {discovered} new bridges via Deep Web Probe.")
+
+    def probe(self, url):
+        try:
+            # HEAD request usually enough and faster, follow redirects
+            resp = self.session.head(url, allow_redirects=True, timeout=10)
+            return get_domain(resp.url)
+        except:
+            # Try GET if HEAD fails (some sites block HEAD)
+            try:
+                resp = self.session.get(url, allow_redirects=True, timeout=10, stream=True)
+                resp.close()
+                return get_domain(resp.url)
+            except:
+                return None
+
+# --- 🧠 BRIDGE BRAIN ---
 class BridgeBrain:
     def __init__(self):
         self.domain_map = {} 
@@ -293,7 +362,7 @@ class BridgeBrain:
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v64.0)...")
+        print("🧠 BridgeBrain: Initializing The Singularity (v64.1)...")
         
         # 1. LIVE FETCH DOKI (Cortex A)
         doki_cortex = DokiCortex()
@@ -328,75 +397,183 @@ class BridgeBrain:
                                 root = get_root_domain(domain)
                                 if root:
                                     self.root_domain_map[root] = (signed_id, name)
-                            
-                            if norm: self.name_map[norm] = (signed_id, name)
-            except Exception as e:
-                print(f"⚠️ Index Error: {e}")
-
-    def synthesize_permutations(self, name):
-        """Generates domain variants for Hallucination Check"""
-        n = normalize_name(name).lower()
-        if not n: return []
-        
-        clean = n.replace("scans", "").replace("scan", "").replace("comics", "").replace("comic", "")
-        
-        candidates = [
-            f"{n}.com", f"{n}.net", f"{n}.org", f"{n}.to", f"{n}.io", f"{n}.gg", f"{n}.cc", f"{n}.me",
-            f"read{n}.com", f"{n}scans.com", f"{n}-scans.com",
-            f"{clean}.com", f"{clean}.to", f"{clean}.io", f"read{clean}.com", f"{clean}.net", f"{clean}.org"
-        ]
-        return candidates
-
-    def fuzzy_match(self, name):
-        if not name: return None
-        tokens = tokenize_name(name)
-        if not tokens: return None
-
-        best_score = 0
-        best_match = None
-
-        for k_name, (sid, sname) in self.name_map.items():
-            k_tokens = tokenize_name(k_name)
-            if not k_tokens: continue
-            common = tokens.intersection(k_tokens)
-            if not common: continue
-            score = len(common) / max(len(tokens), len(k_tokens))
-            if score > best_score:
-                best_score = score
-                best_match = (sid, sname)
-        
-        if best_score >= 0.6: return best_match
-        return None
-
-    def identify(self, kotatsu_name, kotatsu_url):
-        # STAGE 1: THE GOD LINK (Reverse Engineering)
-        manga_domain = get_domain(kotatsu_url)
-        if manga_domain:
-            if manga_domain in self.domain_map:
-                return self.domain_map[manga_domain]
-            root = get_root_domain(manga_domain)
-            if root and root in self.root_domain_map:
-                return self.root_domain_map[root]
-
-        # STAGE 2: CORTEX A (Polyglot)
-        k_norm = normalize_name(kotatsu_name)
-        learned_domain = self.doki_map.get(k_norm) or self.doki_map.get(kotatsu_name)
-        
-        if learned_domain:
-            if learned_domain in self.domain_map:
-                return self.domain_map[learned_domain]
-            learned_root = get_root_domain(learned_domain)
-            if learned_root and learned_root in self.root_domain_map:
-                return self.root_domain_map[learned_root]
-
-        # STAGE 3: DIRECT NAME
-        if k_norm in self.name_map:
-            return self.name_map[k_norm]
-
-        # STAGE 4: QUANTUM PERMUTATION (Hallucination Check)
-        for candidate in self.synthesize_permutations(kotatsu_name):
-            cand_domain = get_domain(candidate)
-            if cand_domain in self.domain_map:
-                return self.domain_map[cand_domain]
-            cand_root = get_root_domain(cand_domain)
-            if cand_root 
+‎                            
+‎                            if norm: self.name_map[norm] = (signed_id, name)
+‎            except Exception as e:
+‎                print(f"⚠️ Index Error: {e}")
+‎
+‎    def synthesize_permutations(self, name):
+‎        """Generates domain variants for Hallucination Check"""
+‎        n = normalize_name(name).lower()
+‎        if not n: return []
+‎        
+‎        clean = n.replace("scans", "").replace("scan", "").replace("comics", "").replace("comic", "")
+‎        
+‎        candidates = [
+‎            f"{n}.com", f"{n}.net", f"{n}.org", f"{n}.to", f"{n}.io", f"{n}.gg", f"{n}.cc", f"{n}.me",
+‎            f"read{n}.com", f"{n}scans.com", f"{n}-scans.com",
+‎            f"{clean}.com", f"{clean}.to", f"{clean}.io", f"read{clean}.com", f"{clean}.net", f"{clean}.org"
+‎        ]
+‎        return candidates
+‎
+‎    def fuzzy_match(self, name):
+‎        if not name: return None
+‎        tokens = tokenize_name(name)
+‎        if not tokens: return None
+‎
+‎        best_score = 0
+‎        best_match = None
+‎
+‎        for k_name, (sid, sname) in self.name_map.items():
+‎            k_tokens = tokenize_name(k_name)
+‎            if not k_tokens: continue
+‎            common = tokens.intersection(k_tokens)
+‎            if not common: continue
+‎            score = len(common) / max(len(tokens), len(k_tokens))
+‎            if score > best_score:
+‎                best_score = score
+‎                best_match = (sid, sname)
+‎        
+‎        if best_score >= 0.6: return best_match
+‎        return None
+‎
+‎    def identify(self, kotatsu_name, kotatsu_url):
+‎        # STAGE 1: THE GOD LINK (Reverse Engineering)
+‎        manga_domain = get_domain(kotatsu_url)
+‎        if manga_domain:
+‎            if manga_domain in self.domain_map:
+‎                return self.domain_map[manga_domain]
+‎            root = get_root_domain(manga_domain)
+‎            if root and root in self.root_domain_map:
+‎                return self.root_domain_map[root]
+‎
+‎        # STAGE 2: CORTEX A (Polyglot)
+‎        k_norm = normalize_name(kotatsu_name)
+‎        learned_domain = self.doki_map.get(k_norm) or self.doki_map.get(kotatsu_name)
+‎        
+‎        if learned_domain:
+‎            if learned_domain in self.domain_map:
+‎                return self.domain_map[learned_domain]
+‎            learned_root = get_root_domain(learned_domain)
+‎            if learned_root and learned_root in self.root_domain_map:
+‎                return self.root_domain_map[learned_root]
+‎
+‎        # STAGE 3: DIRECT NAME
+‎        if k_norm in self.name_map:
+‎            return self.name_map[k_norm]
+‎
+‎        # STAGE 4: QUANTUM PERMUTATION (Hallucination Check)
+‎        for candidate in self.synthesize_permutations(kotatsu_name):
+‎            cand_domain = get_domain(candidate)
+‎            if cand_domain in self.domain_map:
+‎                return self.domain_map[cand_domain]
+‎            cand_root = get_root_domain(cand_domain)
+‎            if cand_root and cand_root in self.root_domain_map: # Fixed Syntax Error here
+‎                return self.root_domain_map[cand_root]
+‎
+‎        # STAGE 5: FUZZY SEMANTIC
+‎        fuzzy = self.fuzzy_match(kotatsu_name)
+‎        if fuzzy: return fuzzy
+‎
+‎        # FALLBACK
+‎        gen_id = java_string_hashcode(kotatsu_name)
+‎        return (gen_id, kotatsu_name)
+‎
+‎# --- CONVERTER ---
+‎
+‎def main():
+‎    if not os.path.exists(KOTATSU_INPUT):
+‎        print("❌ Backup.zip not found.")
+‎        return
+‎
+‎    brain = BridgeBrain()
+‎    brain.ingest()
+‎
+‎    print("\n🔄 STARTING MIGRATION (SINGULARITY MODE)...")
+‎    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+‎        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
+‎        if not fav_file: raise Exception("No favourites file in zip.")
+‎        fav_data = json.loads(z.read(fav_file))
+‎
+‎    print(f"📊 Analyzing {len(fav_data)} entries...")
+‎    
+‎    # --- PASS 1: INITIAL IDENTIFICATION ---
+‎    unbridged_items = []
+‎    
+‎    # Helper to check if ID is real
+‎    all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎    all_real_ids.update(x[0] for x in brain.name_map.values())
+‎    
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
+‎        
+‎        final_id, _ = brain.identify(source_name, url)
+‎        
+‎        if final_id not in all_real_ids:
+‎            unbridged_items.append({'source': source_name, 'url': url})
+‎
+‎    # --- STAGE 6: ORACLE CONSULTATION ---
+‎    if unbridged_items:
+‎        oracle = Oracle(brain)
+‎        oracle.consult(unbridged_items)
+‎        # Update set of real IDs after Oracle might have added new ones
+‎        all_real_ids = set(x[0] for x in brain.domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.root_domain_map.values())
+‎        all_real_ids.update(x[0] for x in brain.name_map.values())
+‎
+‎    # --- PASS 2: FINAL GENERATION ---
+‎    backup = tachiyomi_pb2.Backup()
+‎    registry_ids = set()
+‎    matches = 0
+‎
+‎    for item in fav_data:
+‎        manga = item.get('manga', {})
+‎        url = manga.get('url', '') or manga.get('public_url', '')
+‎        source_name = manga.get('source', '')
+‎        
+‎        # Second call to identify will use new Oracle knowledge
+‎        final_id, final_name = brain.identify(source_name, url)
+‎        
+‎        is_bridged = final_id in all_real_ids
+‎        if is_bridged: matches += 1
+‎            
+‎        if final_id not in registry_ids:
+‎            s = tachiyomi_pb2.BackupSource()
+‎            s.sourceId = final_id
+‎            s.name = final_name
+‎            backup.backupSources.append(s)
+‎            registry_ids.add(final_id)
+‎
+‎        bm = backup.backupManga.add()
+‎        bm.source = final_id
+‎        bm.url = url 
+‎        bm.title = manga.get('title', '')
+‎        bm.artist = manga.get('artist', '')
+‎        bm.author = manga.get('author', '')
+‎        bm.description = manga.get('description', '')
+‎        bm.thumbnailUrl = manga.get('cover_url', '')
+‎        bm.dateAdded = int(item.get('created_at', 0))
+‎        
+‎        state = (manga.get('state') or '').upper()
+‎        if state == 'ONGOING': bm.status = 1
+‎        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
+‎        else: bm.status = 0
+‎        
+‎        tags = manga.get('tags', [])
+‎        if tags:
+‎            for t in tags:
+‎                if t: bm.genre.append(str(t))
+‎
+‎    out_path = os.path.join(OUTPUT_DIR, 'Backup.tachibk')
+‎    with gzip.open(out_path, 'wb') as f:
+‎        f.write(backup.SerializeToString())
+‎
+‎    print(f"✅ SUCCESS. Connection Rate: {matches}/{len(fav_data)}.")
+‎    print(f"📂 Saved to {out_path}")
+‎
+‎if __name__ == "__main__":
+‎    main()
+‎
