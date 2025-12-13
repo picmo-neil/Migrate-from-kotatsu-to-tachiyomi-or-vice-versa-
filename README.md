@@ -8,25 +8,16 @@ This repository contains an intelligent workflow to convert backup files between
 *   **Kotatsu to Tachiyomi**: Upload `Backup.zip` → Get `.tachibk`
 *   **Tachiyomi to Kotatsu**: Upload `Backup.tachibk` → Get `.zip`
 
-## How to use
+## 🛠️ How it works
+This repository uses a **GitHub Action** to:
+1.  Install **Protocol Buffers** compiler (`protoc`).
+2.  Compile the `schema.proto` into a Python class on the fly.
+3.  Execute `main.py` to convert your backup with mathematical precision.
 
+## Usage
 1.  **Fork/Copy this Repo**.
 2.  **Upload your Backup**:
     *   If converting **Kotatsu** -> Name it `Backup.zip`.
     *   If converting **Tachiyomi** -> Name it `Backup.tachibk`.
-3.  **Run Workflow**:
-    *   Go to **Actions** tab -> **Convert Backup** -> **Run workflow**.
-4.  **Download Result**: Check the artifacts section of the run.
-
-## Directory Structure
-
-```
-├── .github/workflows/migrate.yml
-├── src
-│   ├── index.js
-│   └── schema.proto
-├── .gitignore
-├── package.json
-├── README.md
-└── Backup.zip (or Backup.tachibk)
-```
+3.  **Run**: Actions -> **Universal Convert**.
+4.  **Download**: The artifact `converted_backup`.
