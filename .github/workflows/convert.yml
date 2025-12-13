@@ -18,16 +18,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python (Stable)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.11' 
+          # 3.11 is the sweet spot for stability. 
+          # 3.14 (Alpha) caused the previous crash.
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-          pip install protobuf==4.25.3 requests
+          pip install --upgrade pip setuptools wheel
+          pip install protobuf==5.29.3 requests
 
       - name: Compile Schema
         run: |
@@ -39,9 +42,11 @@ jobs:
             exit 1
           fi
 
-      - name: Run connector
+      - name: Run 🎷 sax 🎷 
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CRITICAL: Forces pure python implementation to prevent C++ crashes
+          PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
         run: python main.py
 
       - name: Upload Converted Backup
