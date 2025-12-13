@@ -11,7 +11,7 @@ on:
 
 jobs:
   execution:
-    name: Execute God Mode Engine
+    name: Execute
     runs-on: ubuntu-latest
     permissions:
       contents: write
