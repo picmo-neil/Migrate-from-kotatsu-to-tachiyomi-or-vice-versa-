@@ -8,26 +8,31 @@ import re
 import time
 import random
 import difflib
+import concurrent.futures
 from urllib.parse import urlparse
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-# Import the compiled protobuf schema
+# --- SETUP ---
 try:
     import tachiyomi_pb2
 except ImportError:
-    print("❌ Error: tachiyomi_pb2.py not found. Compile it first.")
+    print("❌ Error: tachiyomi_pb2.py not found.")
     exit(1)
 
 # --- CONFIG ---
 KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
+GH_TOKEN = os.environ.get('GH_TOKEN')
 
-# 🌐 MULTI-INDEX TARGETS (Standard + NSFW + Preview)
+# Use the authoritative index
 TARGET_INDEXES = [
-    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
-    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index-nsfw.min.json"
+    "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"
 ]
+
+# Doki Repo Target
+DOKI_REPO_API = "https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1"
+DOKI_RAW_BASE = "https://raw.githubusercontent.com/DokiTeam/doki-exts/base/"
 
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
@@ -35,7 +40,6 @@ if not os.path.exists(OUTPUT_DIR):
 # --- UTILS ---
 
 def to_signed_64(val):
-    """Encodes an integer as a Java Long (signed 64-bit)."""
     try:
         val = int(val)
         return struct.unpack('q', struct.pack('Q', val & 0xFFFFFFFFFFFFFFFF))[0]
@@ -49,7 +53,6 @@ def java_string_hashcode(s):
     return to_signed_64(h)
 
 def get_domain(url):
-    """Extracts the clean domain for matching."""
     if not url: return None
     if not url.startswith('http'): url = 'https://' + url
     try:
@@ -63,10 +66,6 @@ def get_domain(url):
         return None
 
 def normalize_name(name):
-    """
-    Hivemind Normalization.
-    Strips noise to find the signal.
-    """
     if not name: return ""
     n = name.upper()
     suffixes = [
@@ -77,255 +76,231 @@ def normalize_name(name):
     ]
     for s in suffixes:
         n = n.replace(s, "")
-    # Remove all non-alphanumeric characters
     n = re.sub(r'[^A-Z0-9]', '', n)
     return n
 
-def clean_url(url, domain):
-    if not url: return ""
-    needs_relative = [
-        "mangadex", "manganato", "mangakakalot", "bato", "mangapark", 
-        "mangasee", "mangalife", "asura", "flame", "reaper", "mangafire"
-    ]
-    is_picky = any(x in domain for x in needs_relative) if domain else False
-    if is_picky and "://" in url:
-        try:
-            parsed = urlparse(url)
-            rel = parsed.path
-            if parsed.query: rel += "?" + parsed.query
-            return rel
-        except:
-            return url
-    return url
+def get_session():
+    s = requests.Session()
+    # High retry count for resilience
+    retries = Retry(total=20, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    s.mount('https://', HTTPAdapter(max_retries=retries))
+    if GH_TOKEN:
+        s.headers.update({'Authorization': f'token {GH_TOKEN}'})
+    return s
 
-# --- 🐝 HIVEMIND (Bridge v3) ---
-class Hivemind:
+# --- 🛰️ DOKI SCANNER ---
+class DokiScanner:
+    """
+    Scans the DokiTeam/doki-exts repository to reverse engineer source definitions.
+    """
     def __init__(self):
-        self.domain_map = {}
-        self.name_map = {}
-        self.source_count = 0
-        
-        # 📂 DOKI KNOWLEDGE BASE (Enhanced)
-        # Manually mapped sources where names/domains are completely different
-        self.doki_knowledge = {
-            "MangaFire": (2011853258082095422, "MangaFire"),
-            "MangaDex": (2499283573021220255, "MangaDex"),
-            "Bato": (73976367851206, "Bato.to"),
-            "NHentai": (7670359809983944111, "NHentai"),
-            "Asura": (6676140324647343467, "Asura Scans"),
-            "Flame": (7350700882194883466, "Flame Comics"),
-            "KomikCast": (6555802271615367624, "KomikCast"),
-            "WestManga": (2242173510505199676, "West Manga"),
-            "MangaBat": (1791778683660516, "Manganato"), # Often linked
-            "Comick": (4689626359218228302, "Comick"),
-        }
+        self.knowledge = {} # { Name: Domain }
+        self.session = get_session()
 
-    def learn(self, domain, name, sid):
-        signed_id = to_signed_64(sid)
-        if domain: self.domain_map[domain] = (signed_id, name)
-        norm = normalize_name(name)
-        if norm: self.name_map[norm] = (signed_id, name)
+    def scan(self):
+        print("🛰️ DokiScanner: Connecting to DokiTeam repository...")
+        try:
+            # 1. Fetch File Tree
+            resp = self.session.get(DOKI_REPO_API, timeout=30)
+            if resp.status_code != 200:
+                print(f"⚠️ Failed to list Doki repo: {resp.status_code}")
+                return self.knowledge
+
+            tree = resp.json().get('tree', [])
+            kt_files = [f for f in tree if f['path'].startswith('src/main/kotlin/org/dokiteam/doki/parsers/site') and f['path'].endswith('.kt')]
+            
+            print(f"   -> Found {len(kt_files)} Kotlin source definitions. Extracting data...")
+
+            # 2. Parallel Processing
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                futures = {executor.submit(self.process_file, f): f for f in kt_files}
+                for future in concurrent.futures.as_completed(futures):
+                    pass # Just wait for completion
+
+            print(f"   -> DokiScanner Extraction Complete. Learned {len(self.knowledge)} source mappings.")
+
+        except Exception as e:
+            print(f"⚠️ DokiScanner Error: {e}")
+        
+        return self.knowledge
+
+    def process_file(self, file_obj):
+        path = file_obj['path']
+        url = DOKI_RAW_BASE + path
+        try:
+            resp = self.session.get(url, timeout=10)
+            if resp.status_code == 200:
+                content = resp.text
+                
+                # Regex to find name and baseUrl
+                # override val name = "MangaDex"
+                # override val baseUrl = "https://mangadex.org"
+                name_match = re.search(r'overrides+vals+names*[:=]s*(?:Strings*=s*)?"([^"]+)"', content)
+                url_match = re.search(r'overrides+vals+baseUrls*[:=]s*(?:Strings*=s*)?"([^"]+)"', content)
+                
+                if name_match and url_match:
+                    name = name_match.group(1)
+                    base_url = url_match.group(1)
+                    domain = get_domain(base_url)
+                    
+                    if name and domain:
+                        # Normalize name for better matching key
+                        norm_name = normalize_name(name)
+                        self.knowledge[norm_name] = domain
+                        # Also store raw name just in case
+                        self.knowledge[name] = domain
+        except:
+            pass
+
+# --- 🧠 OMNI-BRIDGE BRAIN ---
+class BridgeBrain:
+    def __init__(self):
+        self.domain_map = {} # { Domain: (ID, Name) }
+        self.name_map = {}   # { NormalizedName: (ID, Name) }
+        self.doki_map = {}   # { NormalizedName: Domain } (From Scanner)
+        self.source_count = 0
+        self.session = get_session()
 
     def ingest_knowledge(self):
-        print("🐝 Hivemind: Awakening...")
-        
-        # 1. Load Doki Knowledge
-        print(f"📂 Loading Internal Knowledge Base ({len(self.doki_knowledge)} nodes)...")
-        for k_name, (sid, t_name) in self.doki_knowledge.items():
-            self.name_map[normalize_name(k_name)] = (sid, t_name)
+        print("🧠 BridgeBrain: Initializing Omni-Bridge Protocol...")
 
-        # Setup Retry Strategy
-        session = requests.Session()
-        retry = Retry(connect=3, backoff_factor=1)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
+        # 1. Run Doki Scanner (The Left Side of the Bridge)
+        scanner = DokiScanner()
+        self.doki_map = scanner.scan()
 
-        # 2. Fetch Keiyoushi Indexes
+        # 2. Fetch Keiyoushi Index (The Right Side of the Bridge)
         for url in TARGET_INDEXES:
-            file_name = url.split('/')[-1]
-            print(f"📡 Scanning Extension Index: {file_name}...")
+            print(f"📡 Ingesting Keiyoushi Index...")
             try:
-                resp = session.get(url, timeout=30)
+                resp = self.session.get(url, timeout=30)
                 if resp.status_code == 200:
                     data = resp.json()
-                    local_count = 0
                     for ext in data:
                         for src in ext.get('sources', []):
                             self.source_count += 1
-                            local_count += 1
                             sid = src.get('id')
                             name = src.get('name')
                             base = src.get('baseUrl')
                             d = get_domain(base)
-                            if sid and name:
-                                self.learn(d, name, sid)
-                    print(f"   -> Absorbed {local_count} sources.")
+                            
+                            signed_id = to_signed_64(sid)
+                            if d: self.domain_map[d] = (signed_id, name)
+                            
+                            norm = normalize_name(name)
+                            if norm: self.name_map[norm] = (signed_id, name)
                 else:
-                    print(f"   -> ⚠️ Failed (Status: {resp.status_code})")
+                    print(f"⚠️ Index Fetch Failed: {resp.status_code}")
             except Exception as e:
-                print(f"   -> ⚠️ Network Error: {e}")
+                print(f"⚠️ Index Error: {e}")
 
-    def verify_integrity(self):
-        print("\n🛡️ STARTING 6-CYCLE HIVEMIND CHECK...")
-        
-        check_nodes = ["MANGADEX", "MANGANATO", "BATO", "NHENTAI", "ASURA"]
-        
-        for i in range(1, 7):
-            print(f"   Cycle {i}/6: Synapse check...", end="")
-            time.sleep(0.2)
-            
-            node = random.choice(check_nodes)
-            if node in self.name_map:
-                print(f" ✅ Active ({node})")
-            else:
-                print(f" ⚠️ Dormant ({node})")
-                
-        print(f"✨ HIVEMIND ONLINE.")
-        print(f"   - Total Sources: {self.source_count}")
-        print(f"   - Domain Pathways: {len(self.domain_map)}")
-        print(f"   - Name Bridges: {len(self.name_map)}")
-
-    def save_neural_map(self):
-        dump_path = os.path.join(OUTPUT_DIR, 'hivemind_map.json')
-        print(f"💾 Dumping Memory to {dump_path}...")
-        export_data = {
-            "domains": {k: str(v[0]) for k, v in self.domain_map.items()},
-            "names": {k: str(v[0]) for k, v in self.name_map.items()}
-        }
-        with open(dump_path, 'w') as f:
-            json.dump(export_data, f, indent=2)
+    def verify(self):
+        print(f"🛡️ System Status: {len(self.doki_map)} Doki Nodes <-> {len(self.domain_map)} Keiyoushi Nodes.")
 
     def identify(self, kotatsu_name, kotatsu_url):
         domain = get_domain(kotatsu_url)
         k_norm = normalize_name(kotatsu_name)
         
-        # Tier 1: Domain Exact Match
+        # Strategy 1: Direct Domain Match (Best)
         if domain and domain in self.domain_map:
             return self.domain_map[domain]
-            
-        # Tier 2: Name Exact Match
+
+        # Strategy 2: The Omni-Bridge (Relative URL / Missing URL Resolver)
+        # We don't have a domain from the manga URL (it might be relative).
+        # But we know the Kotatsu Name. Let's look up what domain Doki uses for that name.
+        if k_norm in self.doki_map:
+            doki_domain = self.doki_map[k_norm]
+            # Now map that Doki Domain to Tachiyomi
+            if doki_domain in self.domain_map:
+                # print(f"🌉 Bridge Success: {kotatsu_name} -> {doki_domain} -> ID")
+                return self.domain_map[doki_domain]
+
+        # Strategy 3: Name Match (Fuzzy/Exact)
         if k_norm in self.name_map:
             return self.name_map[k_norm]
             
-        # Tier 3: Fuzzy Name Match (The Smart Part)
-        # Finds matches > 90% similar (e.g. "Asura Scans" vs "AsuraScan")
+        # Strategy 4: Fuzzy Search
         if k_norm:
             matches = difflib.get_close_matches(k_norm, self.name_map.keys(), n=1, cutoff=0.90)
             if matches:
-                match_name = matches[0]
-                # print(f"🧠 Fuzzy Match: {k_norm} ~= {match_name}")
-                return self.name_map[match_name]
+                return self.name_map[matches[0]]
 
-        # Tier 4: Heuristic Generation (Last Resort)
-        seed = f"{kotatsu_name}"
-        gen_id = java_string_hashcode(seed)
+        # Fallback
+        gen_id = java_string_hashcode(kotatsu_name)
         return (gen_id, kotatsu_name)
 
-# --- MAIN CONVERTER ---
+# --- CONVERTER ---
 
-def kotatsu_to_tachiyomi():
-    brain = Hivemind()
-    brain.ingest_knowledge()
-    brain.verify_integrity()
-    brain.save_neural_map()
-    
-    print("\n🔄 STARTING MIGRATION PROCESS...")
-    
+def main():
     if not os.path.exists(KOTATSU_INPUT):
-         raise Exception("Backup.zip not found.")
+        print("❌ Backup.zip not found.")
+        return
 
+    brain = BridgeBrain()
+    brain.ingest_knowledge()
+    brain.verify()
+
+    print("\n🔄 READING BACKUP...")
     with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
         fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
-        if not fav_file: raise Exception("CRITICAL: 'favourites' json not found in Backup.zip")
+        if not fav_file: raise Exception("No favourites file in zip.")
         fav_data = json.loads(z.read(fav_file))
 
-    registry_ids = set()
-    registry_list = []
+    print(f"📊 Processing {len(fav_data)} items...")
     
-    def register_source(sid, name):
-        if sid not in registry_ids:
-            s = tachiyomi_pb2.BackupSource()
-            s.sourceId = sid
-            s.name = name
-            registry_list.append(s)
-            registry_ids.add(sid)
-        return sid
-
     backup = tachiyomi_pb2.Backup()
+    registry_ids = set()
     
-    print(f"📊 Analyzing {len(fav_data)} manga entries...")
-    
-    success_count = 0
-    bridge_matches = 0
+    matches = 0
     
     for item in fav_data:
-        manga_data = item.get('manga', {})
+        manga = item.get('manga', {})
+        url = manga.get('url', '') or manga.get('public_url', '')
+        source_name = manga.get('source', '')
         
-        # Extract
-        raw_url = manga_data.get('url', '') or manga_data.get('public_url', '')
-        title = manga_data.get('title', '')
-        k_source = manga_data.get('source', '')
+        final_id, final_name = brain.identify(source_name, url)
         
-        # Identify
-        final_id, final_name = brain.identify(k_source, raw_url)
-        
-        # Check if it was a real match or a fallback
-        if final_id in [x[0] for x in brain.domain_map.values()] or \
-           final_id in [x[0] for x in brain.name_map.values()]:
-            bridge_matches += 1
+        # Check if we found a "Real" ID
+        if final_id in [x[0] for x in brain.domain_map.values()]:
+            matches += 1
+            
+        # Add Source
+        if final_id not in registry_ids:
+            s = tachiyomi_pb2.BackupSource()
+            s.sourceId = final_id
+            s.name = final_name
+            backup.backupSources.append(s)
+            registry_ids.add(final_id)
 
-        # Register
-        register_source(final_id, final_name)
-        
-        # Clean URL
-        domain = get_domain(raw_url)
-        final_url = clean_url(raw_url, domain)
-
-        # Build Proto
+        # Add Manga
         bm = backup.backupManga.add()
         bm.source = final_id
-        bm.url = final_url
-        bm.title = title
-        bm.artist = manga_data.get('artist', '') or ''
-        bm.author = manga_data.get('author', '') or ''
-        bm.description = manga_data.get('description', '') or ''
-        
-        raw_state = manga_data.get('state')
-        state = (raw_state or '').upper()
-        if state == 'ONGOING': bm.status = 1
-        elif state == 'FINISHED': bm.status = 2
-        elif state == 'COMPLETED': bm.status = 2
-        else: bm.status = 0
-        
-        bm.thumbnailUrl = manga_data.get('cover_url', '') or ''
+        bm.url = url # Tachiyomi often handles the migration of URL format internally if ID matches
+        bm.title = manga.get('title', '')
+        bm.artist = manga.get('artist', '')
+        bm.author = manga.get('author', '')
+        bm.description = manga.get('description', '')
+        bm.thumbnailUrl = manga.get('cover_url', '')
         bm.dateAdded = int(item.get('created_at', 0))
         
-        raw_tags = manga_data.get('tags', [])
-        if raw_tags:
-            for tag in raw_tags:
-                if tag:
-                    try: bm.genre.append(str(tag))
-                    except: pass
+        state = (manga.get('state') or '').upper()
+        if state == 'ONGOING': bm.status = 1
+        elif state in ['FINISHED', 'COMPLETED']: bm.status = 2
+        else: bm.status = 0
         
-        success_count += 1
-
-    # Add sources
-    backup.backupSources.extend(registry_list)
+        # Tags/Genre
+        tags = manga.get('tags', [])
+        if tags:
+            for t in tags:
+                if t: bm.genre.append(str(t))
 
     # Save
     out_path = os.path.join(OUTPUT_DIR, 'Backup.tachibk')
     with gzip.open(out_path, 'wb') as f:
         f.write(backup.SerializeToString())
-    
-    print(f"✅ MIGRATION COMPLETE.")
-    print(f"🔗 Bridges Built: {bridge_matches}/{success_count} entries connected.")
-    print(f"📂 Output: {out_path}")
+
+    print(f"✅ DONE. Bridges: {matches}/{len(fav_data)}.")
+    print(f"📂 Saved to {out_path}")
 
 if __name__ == "__main__":
-    if os.path.exists(KOTATSU_INPUT):
-        kotatsu_to_tachiyomi()
-    else:
-        print("❌ Backup.zip not found! Please upload your Kotatsu backup.")
-        exit(1)
-    
+    main()
+        
