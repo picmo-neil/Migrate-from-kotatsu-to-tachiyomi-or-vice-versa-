@@ -1,4 +1,4 @@
-name: Universal Convert
+name: Migration Pipeline
 
 on:
   push:
@@ -6,50 +6,49 @@ on:
       - 'Backup.zip'
       - 'tachiyomi.proto'
       - 'main.py'
+      - 'requirements.txt'
   workflow_dispatch:
 
 jobs:
-  convert:
+  execution:
+    name: Execute God Mode Engine
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python (Stable)
+      - name: Configure Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11' 
-          # 3.11 is the sweet spot for stability. 
-          # 3.14 (Alpha) caused the previous crash.
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
           pip install --upgrade pip setuptools wheel
-          pip install protobuf==5.29.3 requests
+          pip install -r requirements.txt
 
-      - name: Compile Schema
+      - name: Compile Protocol Buffers
         run: |
           if [ -f "tachiyomi.proto" ]; then
             protoc --python_out=. tachiyomi.proto
-            echo "✅ Compiled tachiyomi.proto"
+            echo "✅ Protobuf schema compiled."
           else
-            echo "❌ Error: tachiyomi.proto not found!"
+            echo "❌ Critical Error: tachiyomi.proto is missing."
             exit 1
           fi
 
-      - name: Run 🎷 sax 🎷 
+      - name: Run Migration Script (v6.6.6)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # CRITICAL: Forces pure python implementation to prevent C++ crashes
           PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
         run: python main.py
 
-      - name: Upload Converted Backup
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: converted_backup
