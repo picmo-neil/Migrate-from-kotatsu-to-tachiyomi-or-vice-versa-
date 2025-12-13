@@ -10,113 +10,48 @@ const KOTATSU_INPUT = 'Backup.zip';
 const TACHI_INPUT = 'Backup.tachibk';
 const OUTPUT_DIR = 'output';
 const PROTO_FILE = path.join(__dirname, 'schema.proto');
+
+// API ENDPOINTS
 const KEIYOUSHI_URL = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json';
+const KOTATSU_REPO_API = 'https://api.github.com/repos/DokiTeam/doki-exts/contents/src/main/kotlin/org/dokiteam/doki/parsers/site';
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 // ==========================================
-// 🧠 REPO BRIDGE ARCHITECTURE (v13.0)
+// 🧠 REPO BRIDGE ARCHITECTURE (v14.0)
 // ==========================================
 
 // [REGISTRY 1] KOTATSU / DOKI
-// Maps [Kotatsu Internal Key] -> [Canonical Domain]
+// Populated via Live GitHub Fetch + Static Fallback
 const KOTATSU_REGISTRY = {
+    // Static Fallbacks for Critical Sources (in case fetching fails)
     "MANGADEX": "mangadex.org",
     "MANGA_SEE": "mangasee123.com",
     "MANGA_LIFE": "mangalife.us",
     "BATO_TO": "bato.to",
     "WEBTOONS": "webtoons.com",
-    
-    // Manganato Network
     "MANGANATO": "manganato.com",
-    "READMANGANATO": "readmanganato.com",
-    "CHAPMANGANATO": "chapmanganato.to",
     "MANGAKAKALOTTV": "mangakakalot.com",
-
-    // Asura / Flame
     "ASURA_SCANS": "asuratoon.com",
-    "ASURA_SCANS_NET": "asuracomic.net",
     "FLAME_COMICS": "flamecomics.com",
-    "FLAME_SCANS": "flamescans.org",
-
-    // Common Scanlators
     "REAPER_SCANS": "reaperscans.com",
-    "TCB_SCANS": "tcbscans.com",
-    "DRAKE_SCANS": "drakescans.com",
-    "RESET_SCANS": "reset-scans.com",
-    "LUMINOUS_SCANS": "luminousscans.com",
-    "VOID_SCANS": "hivescans.com",
-    "RIAZ_G_MC": "riazgmc.com",
-    "COMICK_FUN": "comick.io",
-    
-    // Manhwa/Manhua/Adult
-    "MANHWA_18_CC": "manhwa18.cc",
-    "TOONILY": "toonily.com",
-    "MANHUA_FAST": "manhuafast.com",
-    "HI_PERDEX": "hiperdex.com",
-    "ALLPORN_COMIC": "allporncomic.com",
-    "MANGA_PARK": "mangapark.net",
-    "1ST_KISS_MANGA": "1stkissmanga.io",
-    "MANGA_PILL": "mangapill.com",
-    "MANHWATOP": "manhwatop.com",
-    "ZINMANGA": "zinmanga.com",
-    "TRUEMANGA": "truemanga.com",
-    "NHENTAI": "nhentai.net"
+    "TCB_SCANS": "tcbscans.com"
 };
 
 // [REGISTRY 2] KEIYOUSHI / TACHIYOMI
-// Maps [Canonical Domain] -> [Tachiyomi Extension ID]
+// Populated via Live JSON Fetch + Static Fallback
 const KEIYOUSHI_REGISTRY = {
     "mangadex.org": "2499283573021220255",
     "mangasee123.com": "2973143899120668045",
-    "mangalife.us": "2973143899120668045",
     "bato.to": "8985172093557431221",
-    "webtoons.com": "1989436384073367980",
-    "mangakakalot.com": "2528986671771677900",
     "manganato.com": "1024627298672457456",
-    "chapmanganato.to": "1024627298672457456",
-    "readmanganato.com": "1024627298672457456",
-    "asuratoon.com": "6335003343669033128",
-    "asuracomic.net": "6335003343669033128",
-    "flamecomics.com": "7027219105529276946",
-    "flamescans.org": "7027219105529276946",
-    "reaperscans.com": "5432970425689607116",
-    "tcbscans.com": "374242698294247514",
-    "drakescans.com": "4440058986712398616",
-    "reset-scans.com": "7320022325372333118",
-    "luminousscans.com": "7776264560706599723",
-    "hivescans.com": "1554415891392671911",
-    "comick.io": "8158721336644791464",
-    "manhwa18.cc": "5502656519292762717",
-    "toonily.com": "6750082404202711318",
-    "manhuafast.com": "4088566215115473619",
-    "hiperdex.com": "4390997657042630109",
-    "allporncomic.com": "3650631607354829018",
-    "mangapark.net": "3707293521087813296",
-    "1stkissmanga.io": "5870005527666249265",
-    "mangapill.com": "5426176527506972412",
-    "manhwatop.com": "2504936442654378419",
-    "zinmanga.com": "8472477543884267275",
-    "truemanga.com": "1055223398939634718",
-    "nhentai.net": "1111111111111111111"
+    "asuratoon.com": "6335003343669033128"
 };
 
 const TACHI_NAMES = {}; // Map ID -> Readable Name
 const ID_SEED = 1125899906842597n; 
 
 // --- Utilities ---
-
-function sanitize(str) {
-    if (!str) return "";
-    return str.toLowerCase()
-        .replace(/\(en\)$/, "")
-        .replace(/ english$/, "")
-        .replace(/scans?$/, "")
-        .replace(/comics?$/, "")
-        .replace(/team$/, "")
-        .replace(/[^a-z0-9]/g, "") 
-        .trim();
-}
 
 function getDomain(url) {
     try {
@@ -137,70 +72,134 @@ function getKotatsuId(str) {
 
 const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) ? String(s) : "";
 
-// --- 🌐 Dynamic Repo Fetcher ---
+function fetchUrl(url, isJson = true) {
+    return new Promise((resolve, reject) => {
+        const headers = { 'User-Agent': 'Node.js-Script' };
+        if (process.env.GH_TOKEN && url.includes('api.github.com')) {
+            headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
+        }
 
-function analyzeKeiyoushiRepo() {
-    return new Promise((resolve) => {
-        console.log('📡 Accessing Keiyoushi Extension Repository...');
-        https.get(KEIYOUSHI_URL, (res) => {
+        https.get(url, { headers }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    let added = 0;
-                    json.forEach(ext => {
-                        if (ext.lang !== "en" && ext.lang !== "all") return;
-                        if (!ext.sources) return;
-
-                        ext.sources.forEach(src => {
-                            const id = String(src.id);
-                            TACHI_NAMES[id] = src.name;
-                            
-                            if (src.baseUrl) {
-                                const dom = getDomain(src.baseUrl);
-                                if (dom) {
-                                    KEIYOUSHI_REGISTRY[dom] = id;
-                                    added++;
-                                }
-                            }
-                        });
-                    });
-                    console.log(`✅ Repo Bridge: Learned ${added} new domains.`);
-                    resolve(true);
-                } catch (e) {
-                    console.warn('⚠️ Offline Mode: Using built-in Knowledge Base.');
-                    resolve(false);
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    try {
+                        resolve(isJson ? JSON.parse(data) : data);
+                    } catch (e) { reject(e); }
+                } else {
+                    reject(new Error(`Status ${res.statusCode}`));
                 }
             });
-        }).on('error', () => {
-             console.warn('⚠️ Offline Mode: Using built-in Knowledge Base.');
-             resolve(false);
-        });
+        }).on('error', reject);
     });
 }
 
-// --- 🌉 BRIDGE RESOLVER FUNCTIONS ---
+// --- 🌐 LIVE REPO ANALYZERS ---
+
+async function analyzeKotatsuRepo() {
+    console.log('📡 Accessing Doki/Kotatsu GitHub Repository...');
+    try {
+        // 1. Fetch File List
+        const files = await fetchUrl(KOTATSU_REPO_API, true);
+        if (!Array.isArray(files)) throw new Error("Invalid API response");
+
+        console.log(`🔍 Found ${files.length} parsers in Doki Repo. Scanning contents...`);
+        
+        // 2. Scan Files (Batch processing to be polite)
+        let scanned = 0;
+        const batchSize = 10;
+        
+        for (let i = 0; i < files.length; i += batchSize) {
+            const batch = files.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (file) => {
+                if (!file.name.endsWith('.kt')) return;
+                try {
+                    // Fetch Raw Kotlin Content
+                    const code = await fetchUrl(file.download_url, false);
+                    
+                    // 3. Regex Scraper
+                    // Pattern A: class Name : Parent("Name", "Url", ...)
+                    // Pattern B: override val name = "Name" ... override val baseUrl = "Url"
+                    
+                    let name = null;
+                    let url = null;
+
+                    // Try extraction
+                    const nameMatch = code.match(/override\s+val\s+name\s*=s*"([^"]+)"/) || code.match(/super\(\s*"([^"]+)"/);
+                    const urlMatch = code.match(/override\s+val\s+baseUrl\s*=s*"([^"]+)"/) || code.match(/"(https?://[^"]+)"/);
+
+                    if (nameMatch) name = nameMatch[1];
+                    if (urlMatch) url = urlMatch[1];
+
+                    if (name && url) {
+                        const domain = getDomain(url);
+                        // Clean Name for internal key (Kotatsu often uses UPPER_CASE keys or simple names)
+                        // Heuristic: The file name usually corresponds to the key logic
+                        // But we map [Name] -> [Domain]
+                        if (domain) {
+                            // Map the raw name from code
+                            KOTATSU_REGISTRY[name] = domain;
+                            // Map the upper-snake-case version (common in backups)
+                            const key = name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+                            KOTATSU_REGISTRY[key] = domain;
+                            scanned++;
+                        }
+                    }
+                } catch (e) { /* Ignore individual file errors */ }
+            }));
+        }
+        console.log(`✅ Kotatsu Bridge: Learned ${scanned} sources from Live Source Code.`);
+    } catch (e) {
+        console.warn('⚠️ Kotatsu Live Fetch Failed (Rate Limit/Offline). Using Static Fallback.', e.message);
+    }
+}
+
+async function analyzeKeiyoushiRepo() {
+    console.log('📡 Accessing Keiyoushi Extension Index...');
+    try {
+        const json = await fetchUrl(KEIYOUSHI_URL, true);
+        let added = 0;
+        json.forEach(ext => {
+            if (ext.lang !== "en" && ext.lang !== "all") return;
+            if (!ext.sources) return;
+            ext.sources.forEach(src => {
+                const id = String(src.id);
+                TACHI_NAMES[id] = src.name;
+                if (src.baseUrl) {
+                    const dom = getDomain(src.baseUrl);
+                    if (dom) {
+                        KEIYOUSHI_REGISTRY[dom] = id;
+                        added++;
+                    }
+                }
+            });
+        });
+        console.log(`✅ Tachiyomi Bridge: Learned ${added} domains from Live Index.`);
+    } catch (e) {
+        console.warn('⚠️ Tachiyomi Live Fetch Failed. Using Static Fallback.');
+    }
+}
+
+// --- 🌉 BRIDGE LOGIC ---
 
 // 1. KOTATSU -> TACHIYOMI
 function resolveKotatsuToTachiyomi(kotatsuName, publicUrl) {
     let domain = null;
+    // Try Live Registry first
     if (KOTATSU_REGISTRY[kotatsuName]) domain = KOTATSU_REGISTRY[kotatsuName];
+    // Fallback to URL in backup
     else if (publicUrl) domain = getDomain(publicUrl);
 
-    if (!domain) {
-        console.warn(`⚠️ Unknown Source: ${kotatsuName}. Using Hash ID.`);
-        return { id: getKotatsuId(kotatsuName).toString(), name: kotatsuName };
-    }
+    if (!domain) return { id: getKotatsuId(kotatsuName).toString(), name: kotatsuName };
 
+    // Bridge Crossing
     if (KEIYOUSHI_REGISTRY[domain]) {
         const tId = KEIYOUSHI_REGISTRY[domain];
         const tName = TACHI_NAMES[tId] || kotatsuName;
-        // console.log(`🌉 Bridged: ${kotatsuName} -> ${domain} -> ${tName}`);
         return { id: tId, name: tName };
     }
 
-    // Domain exists but no ID found
     return { id: getKotatsuId(kotatsuName).toString(), name: kotatsuName };
 }
 
@@ -209,37 +208,37 @@ function resolveTachiyomiToKotatsu(tachiId, tachiName, url) {
     const tId = String(tachiId);
     let domain = null;
 
-    // A. Reverse Lookup Domain
+    // A. Reverse Lookup Domain via Keiyoushi Registry
     for (const [dom, id] of Object.entries(KEIYOUSHI_REGISTRY)) {
         if (id === tId) {
             domain = dom;
             break;
         }
     }
-
     if (!domain && url) domain = getDomain(url);
 
-    // B. Map Domain to Kotatsu Key
+    // B. Bridge Crossing to Kotatsu
     if (domain) {
+        // Search Kotatsu Registry for this domain
         for (const [kName, domVal] of Object.entries(KOTATSU_REGISTRY)) {
-            if (domVal === domain) return kName;
+            if (domVal === domain) return kName; // Found exact match from live scrape
         }
         
-        // Smart Reconstruction: Generate a valid-looking Kotatsu Key from Domain
-        // e.g. "mangafire.to" -> "MANGAFIRE"
-        // This ensures the user can see which source it is, even if Kotatsu doesn't officially support it yet.
+        // Smart Reconstruction (Safety Net)
+        // If live scrape missed it (or new source), generate a valid-looking key
         return domain.split('.')[0].toUpperCase().replace(/[^A-Z0-9]/g, "_");
     }
 
-    // C. Name Fallback
     return tachiName.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
 // --- MAIN PROCESS ---
 
 async function main() {
-    console.log('📦 Initializing Repo Bridge Engine (v13.0)...');
-    await analyzeKeiyoushiRepo(); 
+    console.log('📦 Initializing Repo Bridge Engine (v14.0)...');
+    
+    // Parallel Repo Analysis
+    await Promise.all([analyzeKeiyoushiRepo(), analyzeKotatsuRepo()]);
 
     console.log('📖 Loading Protobuf Schema...');
     const root = await protobuf.load(PROTO_FILE);
@@ -265,7 +264,7 @@ async function kotatsuToTachiyomi(BackupMessage) {
         if(e.name.includes('history')) historyData = JSON.parse(e.getData().toString('utf8'));
     });
 
-    if(!favouritesData) throw new Error("Invalid Kotatsu Backup (missing favourites)");
+    if(!favouritesData) throw new Error("Invalid Kotatsu Backup");
 
     const backupCategories = (categoriesData || []).map((c, i) => ({
         name: c.name, order: c.sortKey || i, flags: 0
@@ -359,7 +358,7 @@ async function tachiyomiToKotatsu(BackupMessage) {
         
         let domain = null;
         if (KOTATSU_REGISTRY[kSource]) domain = KOTATSU_REGISTRY[kSource];
-        else if (tm.url) domain = getDomain(tm.url); // Use URL from backup if registry fail
+        else if (tm.url) domain = getDomain(tm.url);
 
         const publicUrl = domain ? `https://${domain}${kUrl}` : null;
 
@@ -380,13 +379,8 @@ async function tachiyomiToKotatsu(BackupMessage) {
             }
         });
 
-        // Convert History
-        // Kotatsu needs specific chapter IDs. Since we don't have Kotatsu chapter IDs,
-        // we synthesize one using the logic: Hash(Source + ChapterURL). 
-        // We find the last read chapter from Tachi history/chapters.
         if (tm.chapters) {
              let lastReadChap = null;
-             // Find chapter with highest number that is marked read
              tm.chapters.forEach(ch => {
                  if (ch.read) {
                     if (!lastReadChap || (ch.chapterNumber > lastReadChap.chapterNumber)) {
@@ -403,7 +397,7 @@ async function tachiyomiToKotatsu(BackupMessage) {
                      updated_at: Number(lastReadChap.dateFetch || Date.now()),
                      chapter_id: chapId, 
                      page: lastReadChap.lastPageRead || 0,
-                     percent: 0, // Tachi doesn't store percent, default to 0
+                     percent: 0,
                      scroll: 0
                  });
              }
@@ -413,8 +407,6 @@ async function tachiyomiToKotatsu(BackupMessage) {
     const zip = new AdmZip();
     zip.addFile("favourites.json", Buffer.from(JSON.stringify(favorites), "utf8"));
     zip.addFile("history.json", Buffer.from(JSON.stringify(history), "utf8"));
-    
-    // Legacy folder support
     zip.addFile("favourites", Buffer.from(JSON.stringify(favorites), "utf8"));
     zip.addFile("history", Buffer.from(JSON.stringify(history), "utf8"));
 
@@ -426,4 +418,4 @@ main().catch(err => {
     console.error("❌ Fatal Error:", err);
     process.exit(1);
 });
-    
+        
