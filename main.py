@@ -530,14 +530,14 @@ def main():
         bm.description = m.get('description', '')
         bm.thumbnailUrl = m.get('cover_url', '')
         bm.dateAdded = int(item.get('created_at', 0) * 1000) if item.get('created_at') else 0
-‎        
-‎        st = (m.get('state') or '').upper()
-‎        if st == 'ONGOING': bm.status = 1
-‎        elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
-‎        else: bm.status = 0
-‎        
-‎        for t in m.get('tags', []):
-‎            if t: bm.genre.append(str(t))
+
+        st = (m.get('state') or '').upper()
+        if st == 'ONGOING': bm.status = 1
+        elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
+        else: bm.status = 0
+
+        for t in m.get('tags', []):
+            if t: bm.genre.append(str(t))
 ‎
 ‎    # 5. Export
 ‎    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
