@@ -14,6 +14,7 @@ import struct
 import requests
 import re
 import difflib
+import time
 from urllib.parse import urlparse
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -33,8 +34,10 @@ KEIYOUSHI_URLS = [
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"
 ]
 
+# --- Constants ---
+MANGADEX_SOURCE_ID = 2499283573021220255 # Standard ID for MangaDex in Tachiyomi
+
 # --- Legacy Bridge ---
-# Historic rebrands that no algorithm can guess (e.g. completely different names)
 LEGACY_MAPPING = {
     "manganato": "Manganato",
     "manganelo": "Manganato",
@@ -50,7 +53,6 @@ LEGACY_MAPPING = {
     "asura": "Asura Comic",
     "asurascans": "Asura Comic",
     "asuratoon": "Asura Comic",
-    "asuracomics": "Asura Comic",
     "flame": "Flame Comics",
     "flamescans": "Flame Comics",
     "flamecomics": "Flame Comics",
@@ -70,7 +72,6 @@ LEGACY_MAPPING = {
     "leviatanscans": "Leviatan Scans",
     "manhwa18": "Manhwa18",
     "manhwa18cc": "Manhwa18",
-    "manhwa18net": "Manhwa18",
     "komikindo": "KomikIndo",
     "komikcast": "KomikCast",
     "westmanga": "WestManga",
@@ -84,7 +85,6 @@ LEGACY_MAPPING = {
 class StringUtils:
     @staticmethod
     def to_signed_64(val):
-        """Converts unsigned 64-bit int to signed 64-bit int."""
         try:
             val = int(val)
             return struct.unpack('q', struct.pack('Q', val & 0xFFFFFFFFFFFFFFFF))[0]
@@ -92,7 +92,6 @@ class StringUtils:
 
     @staticmethod
     def java_hash(s):
-        """Standard Java String.hashCode()."""
         h = 0
         for c in s:
             h = (31 * h + ord(c)) & 0xFFFFFFFFFFFFFFFF
@@ -115,7 +114,6 @@ class StringUtils:
 
     @staticmethod
     def normalize(text):
-        """Basic normalization."""
         if not text: return ""
         t = re.sub(r'\s*[\(\[].*?[\)\]]', '', text)
         t = t.lower()
@@ -131,11 +129,6 @@ class StringUtils:
 # --- Semantic Intelligence ---
 
 class SemanticProcessor:
-    """
-    The 'Smart AI' that understands the core meaning of extension names.
-    It strips away noise to find the soul of the source.
-    """
-    
     NOISE_WORDS = {
         'scan', 'scans', 'scanlation', 'scanlations',
         'comic', 'comics', 'webcomic', 'webcomics',
@@ -149,46 +142,90 @@ class SemanticProcessor:
 
     @staticmethod
     def extract_core_identity(text):
-        """
-        Input: "The Flame Scans (US)"
-        Output: "flame"
-        """
         if not text: return ""
-        
-        # 1. Lowercase and remove symbols
         t = text.lower()
         t = re.sub(r'[^a-z0-9\s]', ' ', t)
-        
-        # 2. Tokenize
         tokens = t.split()
-        
-        # 3. Filter Noise
         core_tokens = [tok for tok in tokens if tok not in SemanticProcessor.NOISE_WORDS and len(tok) > 2]
-        
         if not core_tokens:
-            # If everything was noise (e.g. "Manga Scans"), return normalized original
             return StringUtils.normalize(text)
-            
         return "".join(core_tokens)
+
+# --- Active Intelligence Modules ---
+
+class NetworkProbe:
+    """Tier 5: Active Network Pathfinder"""
+    @staticmethod
+    def check_redirect(url):
+        if not url or not url.startswith('http'): return None
+        try:
+            # Short timeout, we just want to know if it moved
+            print(f"    [Probe] Checking {url}...")
+            resp = requests.head(url, allow_redirects=True, timeout=5)
+            if resp.history: # If redirects happened
+                final_url = resp.url
+                print(f"    [Probe] Redirect found: -> {final_url}")
+                return final_url
+        except:
+            pass
+        return None
+
+class LazarusEngine:
+    """Tier 6: Content Recovery Protocol (MangaDex Integration)"""
+    def __init__(self):
+        self.session = requests.Session()
+        # MangaDex API rate limit is generous but let's be polite
+        self.last_req = 0
+    
+    def find_manga(self, title, artist=None):
+        if not title: return None
+        
+        # Rate limit (2 req/sec)
+        now = time.time()
+        if now - self.last_req < 0.5:
+            time.sleep(0.5)
+        self.last_req = time.time()
+
+        try:
+            print(f"    [Lazarus] Searching Archive for: {title}")
+            # Search MangaDex
+            params = {
+                'title': title,
+                'limit': 5,
+                'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic']
+            }
+            resp = self.session.get('https://api.mangadex.org/manga', params=params, timeout=10)
+            if resp.status_code == 200:
+                results = resp.json().get('data', [])
+                for manga in results:
+                    attr = manga.get('attributes', {})
+                    
+                    # Check Titles (en, ja, romaji)
+                    alt_titles = [attr['title'].get('en')]
+                    for alt in attr.get('altTitles', []):
+                        alt_titles.extend(alt.values())
+                    
+                    # Fuzzy match title
+                    for t in alt_titles:
+                        if t and StringUtils.is_close_match(StringUtils.normalize(title), StringUtils.normalize(t)):
+                            # Found a high confidence match!
+                            print(f"    [Lazarus] MATCH FOUND: {t} ({manga['id']})")
+                            return manga['id'] # Return UUID
+                            
+        except Exception as e:
+            print(f"    [Lazarus] Error: {e}")
+        return None
 
 # --- Extension Registry ---
 
 class ExtensionRegistry:
     def __init__(self):
-        self.session = self._create_session()
-        self.domain_map = {}   # domain -> id
-        self.name_map = {}     # normalized_name -> id
-        self.core_map = {}     # core_identity -> list of (id, name)
-        self.sources = {}      # id -> {name, url}
+        self.session = requests.Session()
+        self.domain_map = {}
+        self.name_map = {}
+        self.core_map = {}
+        self.sources = {}
         self.known_ids = set()
-
-    def _create_session(self):
-        s = requests.Session()
-        retries = Retry(total=3, backoff_factor=0.2, status_forcelist=[500, 502, 503])
-        s.mount('https://', HTTPAdapter(max_retries=retries))
-        if GH_TOKEN:
-            s.headers.update({'Authorization': f'token {GH_TOKEN}'})
-        return s
 
     def sync(self):
         print("[System] Syncing with Keiyoushi Registry...")
@@ -196,7 +233,6 @@ class ExtensionRegistry:
             try:
                 resp = self.session.get(url, timeout=15)
                 if resp.status_code != 200: continue
-                
                 data = resp.json()
                 for ext in data:
                     for src in ext.get('sources', []):
@@ -212,23 +248,17 @@ class ExtensionRegistry:
             self.known_ids.add(real_id)
             self.sources[real_id] = {'name': name, 'url': url}
             
-            # 1. Map Domain
             domain = StringUtils.clean_domain(url)
             if domain and domain not in self.domain_map:
                 self.domain_map[domain] = real_id
                 
-            # 2. Map Normalized Name
             if name:
                 norm = StringUtils.normalize(name)
-                if norm not in self.name_map:
-                    self.name_map[norm] = real_id
-                
-                # 3. Map Core Identity (Deep Search Index)
+                if norm not in self.name_map: self.name_map[norm] = real_id
                 core = SemanticProcessor.extract_core_identity(name)
                 if core:
                     if core not in self.core_map: self.core_map[core] = []
                     self.core_map[core].append(real_id)
-
         except: pass
 
 # --- Resolution Engine ---
@@ -236,10 +266,11 @@ class ExtensionRegistry:
 class ResolutionEngine:
     def __init__(self, registry):
         self.registry = registry
+        self.lazarus = LazarusEngine()
 
-    def resolve(self, k_name, k_url):
+    def resolve(self, k_name, k_url, k_title, k_artist):
         """
-        Priority: Domain -> Legacy -> Exact Name -> Fuzzy Name -> Semantic Deep Search -> Hash
+        Returns: (Source_ID, Source_Name, Method, Updated_Manga_URL)
         """
         
         # 1. Domain Fingerprint
@@ -247,59 +278,67 @@ class ResolutionEngine:
             domain = StringUtils.clean_domain(k_url)
             if domain and domain in self.registry.domain_map:
                 sid = self.registry.domain_map[domain]
-                return (sid, self.registry.sources[sid]['name'], "DOMAIN")
+                return (sid, self.registry.sources[sid]['name'], "DOMAIN", None)
 
         # 2. Legacy Mapping
         norm_input = StringUtils.normalize(k_name)
         if norm_input in LEGACY_MAPPING:
-            target_name = LEGACY_MAPPING[norm_input]
-            target_norm = StringUtils.normalize(target_name)
+            target = LEGACY_MAPPING[norm_input]
+            target_norm = StringUtils.normalize(target)
             if target_norm in self.registry.name_map:
                 sid = self.registry.name_map[target_norm]
-                return (sid, self.registry.sources[sid]['name'], "LEGACY")
+                return (sid, self.registry.sources[sid]['name'], "LEGACY", None)
                 
-        # 3. Name Match (Normalized)
+        # 3. Name Match
         if norm_input in self.registry.name_map:
             sid = self.registry.name_map[norm_input]
-            return (sid, self.registry.sources[sid]['name'], "NAME")
+            return (sid, self.registry.sources[sid]['name'], "NAME", None)
             
-        # 4. Fuzzy Token Match (Safe)
+        # 4. Fuzzy Match
         for known_norm, sid in self.registry.name_map.items():
             if StringUtils.is_close_match(norm_input, known_norm):
-                 return (sid, self.registry.sources[sid]['name'], "FUZZY")
+                 return (sid, self.registry.sources[sid]['name'], "FUZZY", None)
 
-        # 5. Semantic Deep Search (The "999 Retries" Logic)
-        # We simulate retries by aggressively checking against the Core Identity Map
+        # 5. Semantic Match
         input_core = SemanticProcessor.extract_core_identity(k_name)
         if input_core in self.registry.core_map:
-            # We found potential candidates matching the "Soul" of the name.
-            # E.g. input "Flame Scans (US)" -> core "flame". 
-            # Registry has "Flame Comics" -> core "flame".
             candidates = self.registry.core_map[input_core]
-            
-            # If only one match, high confidence.
             if len(candidates) == 1:
                 sid = candidates[0]
-                return (sid, self.registry.sources[sid]['name'], "SEMANTIC_SINGLE")
-            
-            # If multiple matches (e.g. "Alpha" matches "Alpha Scans" and "Alpha Manga"),
-            # pick the one with the closest string length to original
-            best_sid = None
-            best_diff = 999
-            
+                return (sid, self.registry.sources[sid]['name'], "SEMANTIC", None)
+            # Pick best length match
+            best_sid, best_diff = None, 999
             for sid in candidates:
-                cand_name = self.registry.sources[sid]['name']
-                diff = abs(len(k_name) - len(cand_name))
+                diff = abs(len(k_name) - len(self.registry.sources[sid]['name']))
                 if diff < best_diff:
-                    best_diff = diff
-                    best_sid = sid
-            
+                    best_diff, best_sid = diff, sid
             if best_sid:
-                return (best_sid, self.registry.sources[best_sid]['name'], "SEMANTIC_BEST")
+                return (best_sid, self.registry.sources[best_sid]['name'], "SEMANTIC", None)
 
-        # 6. Deterministic Fallback (Lossless)
+        # --- ADVANCED INTELLIGENCE TIERS ---
+        
+        # 5. Active Network Probe (Pathfinder)
+        # Check if URL redirects to a known domain
+        if k_url:
+            new_url = NetworkProbe.check_redirect(k_url)
+            if new_url:
+                new_domain = StringUtils.clean_domain(new_url)
+                if new_domain and new_domain in self.registry.domain_map:
+                    sid = self.registry.domain_map[new_domain]
+                    return (sid, self.registry.sources[sid]['name'], "PROBE_REDIRECT", None)
+
+        # 6. Lazarus Protocol (Content Recovery)
+        # If we are here, the source is unknown/dead. Search MangaDex.
+        if k_title:
+            md_uuid = self.lazarus.find_manga(k_title, k_artist)
+            if md_uuid:
+                # We found the manga on MangaDex!
+                # We must use MangaDex Source ID and update the URL to /manga/{uuid}
+                return (MANGADEX_SOURCE_ID, "MangaDex", "LAZARUS_RECOVERY", f"/manga/{md_uuid}")
+
+        # 7. Deterministic Fallback
         fallback_id = StringUtils.java_hash(k_name)
-        return (fallback_id, k_name, "HASH")
+        return (fallback_id, k_name, "HASH", None)
 
 # --- Main ---
 
@@ -315,12 +354,10 @@ def main():
         return
     if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
 
-    # 1. Initialize
     reg = ExtensionRegistry()
     reg.sync()
     engine = ResolutionEngine(reg)
 
-    # 2. Parse
     print("[System] Parsing backup...")
     try:
         with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
@@ -332,22 +369,30 @@ def main():
         print(f"❌ Read Error: {e}")
         return
 
-    # 3. Execute Migration
     print(f"[System] Migrating {len(data)} entries...")
     
     backup = tachiyomi_pb2.Backup()
     registered = set()
-    stats = {'DOMAIN': 0, 'LEGACY': 0, 'NAME': 0, 'FUZZY': 0, 'SEMANTIC_SINGLE': 0, 'SEMANTIC_BEST': 0, 'HASH': 0}
+    
+    stats = {
+        'DOMAIN': 0, 'LEGACY': 0, 'NAME': 0, 'FUZZY': 0, 
+        'SEMANTIC': 0, 'PROBE_REDIRECT': 0, 'LAZARUS_RECOVERY': 0, 'HASH': 0
+    }
 
     for item in data:
         m = item.get('manga', {})
-        url = m.get('url', '') or m.get('public_url', '')
+        original_url = m.get('url', '') or m.get('public_url', '')
         name = m.get('source', 'Unknown')
+        title = m.get('title', '')
+        artist = m.get('artist', '')
         
         # Resolve
-        sid, sname, method = engine.resolve(name, url)
+        sid, sname, method, new_url = engine.resolve(name, original_url, title, artist)
         stats[method] += 1
         
+        # Use new URL if provided (Lazarus), otherwise original
+        final_url = new_url if new_url else original_url
+
         # Register Source
         if sid not in registered:
             s = tachiyomi_pb2.BackupSource()
@@ -359,9 +404,9 @@ def main():
         # Register Manga
         bm = backup.backupManga.add()
         bm.source = sid
-        bm.url = url
-        bm.title = m.get('title', '')
-        bm.artist = m.get('artist', '')
+        bm.url = final_url
+        bm.title = title
+        bm.artist = artist
         bm.author = m.get('author', '')
         bm.description = m.get('description', '')
         bm.thumbnailUrl = m.get('cover_url', '')
@@ -375,21 +420,22 @@ def main():
         for t in m.get('tags', []):
             if t: bm.genre.append(str(t))
 
-    # 4. Write
+    # Write
     out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
     with gzip.open(out_path, 'wb') as f:
         f.write(backup.SerializeToString())
 
     print("-" * 50)
-    print(f"MIGRATION COMPLETE (v6.9.6 Enterprise + Semantic)")
+    print(f"MIGRATION COMPLETE (v6.9.6)")
     print(f"Total Processed: {len(data)}")
-    print(f"Match Stats:")
-    print(f"  [DOMAIN]   Verified URL:    {stats['DOMAIN']}")
-    print(f"  [LEGACY]   Bridge Map:      {stats['LEGACY']}")
-    print(f"  [NAME]     Direct/Norm:     {stats['NAME']}")
-    print(f"  [FUZZY]    High Similarity: {stats['FUZZY']}")
-    print(f"  [SEMANTIC] Deep AI Match:   {stats['SEMANTIC_SINGLE'] + stats['SEMANTIC_BEST']}")
-    print(f"  [HASH]     Fallback/Local:  {stats['HASH']}")
+    print("-" * 20)
+    print(f"  [TIER 1] Domain Match:     {stats['DOMAIN']}")
+    print(f"  [TIER 2] Legacy Bridge:    {stats['LEGACY']}")
+    print(f"  [TIER 3] Name Match:       {stats['NAME']} / {stats['FUZZY']}")
+    print(f"  [TIER 4] Semantic AI:      {stats['SEMANTIC']}")
+    print(f"  [TIER 5] Network Probe:    {stats['PROBE_REDIRECT']} (Redirects Found)")
+    print(f"  [TIER 6] Lazarus Recovery: {stats['LAZARUS_RECOVERY']} (Recovered via MangaDex)")
+    print(f"  [TIER 7] Hash Fallback:    {stats['HASH']}")
     print("-" * 50)
     print(f"Artifact: {out_path}")
 
