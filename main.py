@@ -217,8 +217,17 @@ def kotatsu_to_tachiyomi():
         bm.status = 1 if manga_data.get('state') == 'ONGOING' else 2
         bm.thumbnailUrl = manga_data.get('cover_url', '') or ''
         bm.dateAdded = int(item.get('created_at', 0))
-        for tag in manga_data.get('tags', []):
-            bm.genre.append(tag)
+        
+        # FIX: Defensive Tag Handling (v53.0)
+        # manga_data.get('tags') can be None, or contain non-strings
+        raw_tags = manga_data.get('tags', [])
+        if raw_tags is None: raw_tags = []
+        for tag in raw_tags:
+            if tag:
+                try:
+                    bm.genre.append(str(tag))
+                except Exception:
+                    pass # skip bad tags
 
     backup.backupSources.extend(registry.get_list())
 
