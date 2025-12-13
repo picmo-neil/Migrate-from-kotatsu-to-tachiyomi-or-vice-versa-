@@ -11,6 +11,6 @@ This repository uses a **GitHub Action** to:
 ## Usage
 1.  **Fork/Copy this Repo**.
 2.  **Upload your Backup**:u can see my backup.zip
-    remove it and put ur kotatsu/doki backup in format
+    remove it and put ur kotatsu/doki backup in same (backup.zip) format
 3.  **Run**: Actions -> **Migration Pipeline**.
 4.  **Download**: The artifact `converted_backup`.
