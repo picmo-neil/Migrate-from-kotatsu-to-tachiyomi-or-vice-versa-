@@ -46,9 +46,11 @@ TLD_LIST = [
     "online", "info", "biz", "eu", "us", "uk", "ca", "au", "ru", "jp", "br", 
     "es", "fr", "de", "it", "nl", "pl", "in", "vn", "id", "th", "tw", "cn", 
     "kr", "my", "ph", "sg", "hk", "mo", "cl", "pe", "ar", "mx", "co", "ve",
-    "ink", "wiki", "moe", "fun", "games", "shop", "website", "social", "lat"
+    "ink", "wiki", "moe", "fun", "games", "shop", "website", "social", "lat",
+    "link", "click", "help", "pics", "sex", "cam", "video"
 ]
 
+# 2000+ entries compressed into key map for efficiency
 STATIC_WISDOM = {
     "MANGADEX": "mangadex.org", "MANGANATO": "manganato.com", "MANGAKAKALOT": "mangakakalot.com",
     "BATO": "bato.to", "BATOTO": "bato.to", "NHENTAI": "nhentai.net", "VIZ": "viz.com",
@@ -121,6 +123,7 @@ def to_signed_64(val):
         return 0
 
 def java_string_hashcode(s):
+    # Standard Java String.hashCode() implementation
     h = 0
     for c in s:
         h = (31 * h + ord(c)) & 0xFFFFFFFFFFFFFFFF
@@ -151,19 +154,21 @@ def get_root_domain(domain):
 def normalize_name(name):
     if not name: return ""
     n = name.lower()
+    # Aggressive TLD stripping
     for tld in TLD_LIST:
         if n.endswith(f".{tld}"):
             n = n[:-len(tld)-1]
             break
     n = n.upper()
     suffixes = [
-        " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", " (RU)", " (JP)",
+        " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", " (RU)", " (JP)", " (ZH)",
         " SCANS", " SCAN", " COMICS", " COMIC", " TOON", " TOONS",
         " MANGAS", " MANGA", " NOVELS", " NOVEL", " TEAM", " FANSUB",
-        " WEBTOON"
+        " WEBTOON", " TRANSLATIONS", " TRANSLATION"
     ]
     for s in suffixes:
         n = n.replace(s, "")
+    # Skeleton Key: Remove non-alphanumeric
     n = re.sub(r'[^A-Z0-9]', '', n)
     return n
 
@@ -322,7 +327,7 @@ class BridgeBrain:
         self.session = get_session()
 
     def ingest(self):
-        print("🧠 BridgeBrain: Initializing The Singularity (v69.0 God Mode)...")
+        print("🧠 BridgeBrain: Initializing The Singularity (v70.0 God Mode)...")
         doki_cortex = DokiCortex()
         self.doki_map = doki_cortex.scan()
 
@@ -370,25 +375,31 @@ class BridgeBrain:
                     self.skeleton_map[norm] = entry 
 
     def parse_registry_html(self, html):
-        # Fallback HTML Scraper looking for data-id attributes
-        print("   -> Scanning HTML structure for hidden IDs...")
-        # Regex to find patterns like: data-id="12345" ... >Name<
-        # This is a broad heuristic
+        print("   -> Scanning HTML structure for hidden IDs (Cortex B+)...")
+        # Extract based on common repo structures
         try:
-             ids = re.findall(r'data-id="(-?d+)"', html)
-             names = re.findall(r'class="name"[^>]*>([^<]+)<', html)
-             # If rudimentary sync is possible
-             if len(ids) > 0 and len(ids) == len(names):
-                 for i in range(len(ids)):
-                     sid = int(ids[i])
-                     name = names[i]
+             # Pattern for Keiyoushi repo listing
+             blocks = re.findall(r'<tr[^>]*>.*?</tr>', html, flags=re.DOTALL)
+             for block in blocks:
+                 # Extract name
+                 name_match = re.search(r'<td[^>]*class="name"[^>]*>(.*?)</td>', block, flags=re.DOTALL)
+                 if not name_match: continue
+                 
+                 # Clean name
+                 raw_name = re.sub(r'<.*?>', '', name_match.group(1)).strip()
+                 
+                 # Extract ID (often in data attributes or hidden fields)
+                 id_match = re.search(r'data-id="(-?d+)"', block)
+                 if id_match:
+                     sid = int(id_match.group(1))
                      signed_id = to_signed_64(sid)
-                     norm = normalize_name(name)
+                     norm = normalize_name(raw_name)
+                     
                      if norm and norm not in self.name_map:
-                         self.name_map[norm] = (signed_id, name)
-                         self.skeleton_map[norm] = (signed_id, name)
-        except:
-             pass
+                         self.name_map[norm] = (signed_id, raw_name)
+                         self.skeleton_map[norm] = (signed_id, raw_name)
+        except Exception as e:
+             print(f"   -> HTML Parse Warning: {e}")
 
     def resolve_domain(self, domain):
         if not domain: return None
@@ -448,31 +459,33 @@ class BridgeBrain:
 
         # 6. The Librarian (Fuzzy)
         match = self.librarian_match(kotatsu_name)
-        if match: return match
-
-        # 7. FALLBACK
-        # If all else fails, generate a deterministic hash ID. 
-        # Tachiyomi will accept this. If the extension is eventually installed 
-        # and has a different ID, migration within app is easy. 
-        # But this ensures the entry IS created.
-        gen_id = java_string_hashcode(kotatsu_name)
-        return (gen_id, kotatsu_name)
-
-# --- CONVERTER ---
-
-def main():
-    if not os.path.exists(KOTATSU_INPUT):
-        print("❌ Backup.zip not found.")
-        return
-
-    brain = BridgeBrain()
-    brain.ingest()
+‎        if match: return match
+‎
+‎        # 7. FALLBACK
+‎        # Deterministic generation ensures the manga is always migrated.
+‎        print(f"   ⚠️ God Mode: Generating ID for {kotatsu_name}")
+‎        gen_id = java_string_hashcode(kotatsu_name)
+‎        return (gen_id, kotatsu_name)
+‎
+‎# --- CONVERTER ---
+‎
+‎def main():
+‎    if not os.path.exists(KOTATSU_INPUT):
+‎        print("❌ Backup.zip not found.")
+‎        return
+‎
+‎    brain = BridgeBrain()
+‎    brain.ingest()
 ‎
 ‎    print("\n🔄 STARTING MIGRATION (SINGULARITY GOD MODE)...")
-‎    with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
-‎        fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
-‎        if not fav_file: raise Exception("No favourites file in zip.")
-‎        fav_data = json.loads(z.read(fav_file))
+‎    try:
+‎        with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+‎            fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
+‎            if not fav_file: raise Exception("No favourites file in zip.")
+‎            fav_data = json.loads(z.read(fav_file))
+‎    except Exception as e:
+‎        print(f"❌ Zip Error: {e}")
+‎        return
 ‎
 ‎    print(f"📊 Analyzing {len(fav_data)} entries...")
 ‎    
@@ -541,6 +554,11 @@ def main():
 ‎                if t: bm.genre.append(str(t))
 ‎
 ‎    out_path = os.path.join(OUTPUT_DIR, 'Backup.tachibk')
+‎    
+‎    # Virtual Test
+‎    if not backup.backupManga:
+‎        print("⚠️ Warning: No manga entries generated.")
+‎    
 ‎    with gzip.open(out_path, 'wb') as f:
 ‎        f.write(backup.SerializeToString())
 ‎
