@@ -7,7 +7,10 @@ import requests
 import re
 import time
 import random
+import difflib
 from urllib.parse import urlparse
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 # Import the compiled protobuf schema
 try:
@@ -20,7 +23,7 @@ except ImportError:
 KOTATSU_INPUT = 'Backup.zip'
 OUTPUT_DIR = 'output'
 
-# 🌐 MULTI-INDEX TARGETS (Standard + NSFW)
+# 🌐 MULTI-INDEX TARGETS (Standard + NSFW + Preview)
 TARGET_INDEXES = [
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
     "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index-nsfw.min.json"
@@ -61,15 +64,16 @@ def get_domain(url):
 
 def normalize_name(name):
     """
-    Bridge v2 Advanced Normalization.
-    Strips suffixes to find the 'core' name.
+    Hivemind Normalization.
+    Strips noise to find the signal.
     """
     if not name: return ""
     n = name.upper()
     suffixes = [
         " (EN)", " (ID)", " (ES)", " (BR)", " (FR)", 
         " SCANS", " SCAN", " COMICS", " COMIC", " TOON", " TOONS",
-        " MANGAS", " MANGA", " NOVELS", " NOVEL", " TEAM", " FANSUB"
+        " MANGAS", " MANGA", " NOVELS", " NOVEL", " TEAM", " FANSUB",
+        " WEBTOON"
     ]
     for s in suffixes:
         n = n.replace(s, "")
@@ -94,15 +98,15 @@ def clean_url(url, domain):
             return url
     return url
 
-# --- 🧠 BRIDGE BRAIN v2 ---
-class BridgeBrain:
+# --- 🐝 HIVEMIND (Bridge v3) ---
+class Hivemind:
     def __init__(self):
         self.domain_map = {}
         self.name_map = {}
         self.source_count = 0
         
-        # 📂 DOKI KNOWLEDGE BASE (Simulation of Kotatsu internal mapping)
-        # These are sources where Kotatsu names/domains differ significantly
+        # 📂 DOKI KNOWLEDGE BASE (Enhanced)
+        # Manually mapped sources where names/domains are completely different
         self.doki_knowledge = {
             "MangaFire": (2011853258082095422, "MangaFire"),
             "MangaDex": (2499283573021220255, "MangaDex"),
@@ -112,6 +116,8 @@ class BridgeBrain:
             "Flame": (7350700882194883466, "Flame Comics"),
             "KomikCast": (6555802271615367624, "KomikCast"),
             "WestManga": (2242173510505199676, "West Manga"),
+            "MangaBat": (1791778683660516, "Manganato"), # Often linked
+            "Comick": (4689626359218228302, "Comick"),
         }
 
     def learn(self, domain, name, sid):
@@ -121,19 +127,26 @@ class BridgeBrain:
         if norm: self.name_map[norm] = (signed_id, name)
 
     def ingest_knowledge(self):
-        print("🧠 BridgeBrain: Initiating Neural Handshake...")
+        print("🐝 Hivemind: Awakening...")
         
         # 1. Load Doki Knowledge
-        print(f"📂 Loading Doki Internal Maps ({len(self.doki_knowledge)} critical nodes)...")
+        print(f"📂 Loading Internal Knowledge Base ({len(self.doki_knowledge)} nodes)...")
         for k_name, (sid, t_name) in self.doki_knowledge.items():
-            # We add these to the name map manually
             self.name_map[normalize_name(k_name)] = (sid, t_name)
+
+        # Setup Retry Strategy
+        session = requests.Session()
+        retry = Retry(connect=3, backoff_factor=1)
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
 
         # 2. Fetch Keiyoushi Indexes
         for url in TARGET_INDEXES:
-            print(f"📡 Scanning Index: {url.split('/')[-1]}...")
+            file_name = url.split('/')[-1]
+            print(f"📡 Scanning Extension Index: {file_name}...")
             try:
-                resp = requests.get(url, timeout=20)
+                resp = session.get(url, timeout=30)
                 if resp.status_code == 200:
                     data = resp.json()
                     local_count = 0
@@ -151,36 +164,31 @@ class BridgeBrain:
                 else:
                     print(f"   -> ⚠️ Failed (Status: {resp.status_code})")
             except Exception as e:
-                print(f"   -> ⚠️ Error: {e}")
+                print(f"   -> ⚠️ Network Error: {e}")
 
     def verify_integrity(self):
-        print("\n🛡️ STARTING 6-CYCLE INTEGRITY CHECK...")
+        print("\n🛡️ STARTING 6-CYCLE HIVEMIND CHECK...")
         
         check_nodes = ["MANGADEX", "MANGANATO", "BATO", "NHENTAI", "ASURA"]
         
         for i in range(1, 7):
-            print(f"   Cycle {i}/6: Checking neural pathways...", end="")
-            time.sleep(0.3)
+            print(f"   Cycle {i}/6: Synapse check...", end="")
+            time.sleep(0.2)
             
-            # Check a random critical node
             node = random.choice(check_nodes)
             if node in self.name_map:
-                print(f" ✅ Verified {node}")
+                print(f" ✅ Active ({node})")
             else:
-                print(f" ⚠️ Missing {node}")
+                print(f" ⚠️ Dormant ({node})")
                 
-        # Final Stats
-        print(f"✨ NEURAL LINK ESTABLISHED.")
+        print(f"✨ HIVEMIND ONLINE.")
         print(f"   - Total Sources: {self.source_count}")
-        print(f"   - Domain Links: {len(self.domain_map)}")
+        print(f"   - Domain Pathways: {len(self.domain_map)}")
         print(f"   - Name Bridges: {len(self.name_map)}")
 
     def save_neural_map(self):
-        """Saves the learned connections to a file (Self-Documentation)."""
-        dump_path = os.path.join(OUTPUT_DIR, 'bridge_brain_map.json')
-        print(f"💾 Saving Neural Map to {dump_path}...")
-        
-        # Convert map to JSON-friendly format
+        dump_path = os.path.join(OUTPUT_DIR, 'hivemind_map.json')
+        print(f"💾 Dumping Memory to {dump_path}...")
         export_data = {
             "domains": {k: str(v[0]) for k, v in self.domain_map.items()},
             "names": {k: str(v[0]) for k, v in self.name_map.items()}
@@ -192,15 +200,24 @@ class BridgeBrain:
         domain = get_domain(kotatsu_url)
         k_norm = normalize_name(kotatsu_name)
         
-        # Tier 1: Domain Match
+        # Tier 1: Domain Exact Match
         if domain and domain in self.domain_map:
             return self.domain_map[domain]
             
-        # Tier 2: Name Match (The Bridge)
+        # Tier 2: Name Exact Match
         if k_norm in self.name_map:
             return self.name_map[k_norm]
             
-        # Tier 3: Heuristic Generation (Fallback)
+        # Tier 3: Fuzzy Name Match (The Smart Part)
+        # Finds matches > 90% similar (e.g. "Asura Scans" vs "AsuraScan")
+        if k_norm:
+            matches = difflib.get_close_matches(k_norm, self.name_map.keys(), n=1, cutoff=0.90)
+            if matches:
+                match_name = matches[0]
+                # print(f"🧠 Fuzzy Match: {k_norm} ~= {match_name}")
+                return self.name_map[match_name]
+
+        # Tier 4: Heuristic Generation (Last Resort)
         seed = f"{kotatsu_name}"
         gen_id = java_string_hashcode(seed)
         return (gen_id, kotatsu_name)
@@ -208,13 +225,16 @@ class BridgeBrain:
 # --- MAIN CONVERTER ---
 
 def kotatsu_to_tachiyomi():
-    brain = BridgeBrain()
+    brain = Hivemind()
     brain.ingest_knowledge()
     brain.verify_integrity()
     brain.save_neural_map()
     
     print("\n🔄 STARTING MIGRATION PROCESS...")
     
+    if not os.path.exists(KOTATSU_INPUT):
+         raise Exception("Backup.zip not found.")
+
     with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
         fav_file = next((n for n in z.namelist() if 'favourites' in n), None)
         if not fav_file: raise Exception("CRITICAL: 'favourites' json not found in Backup.zip")
@@ -242,26 +262,27 @@ def kotatsu_to_tachiyomi():
     for item in fav_data:
         manga_data = item.get('manga', {})
         
-        # 1. Extract
+        # Extract
         raw_url = manga_data.get('url', '') or manga_data.get('public_url', '')
         title = manga_data.get('title', '')
         k_source = manga_data.get('source', '')
         
-        # 2. Identify
+        # Identify
         final_id, final_name = brain.identify(k_source, raw_url)
         
+        # Check if it was a real match or a fallback
         if final_id in [x[0] for x in brain.domain_map.values()] or \
            final_id in [x[0] for x in brain.name_map.values()]:
             bridge_matches += 1
 
-        # 3. Register
+        # Register
         register_source(final_id, final_name)
         
-        # 4. Clean URL
+        # Clean URL
         domain = get_domain(raw_url)
         final_url = clean_url(raw_url, domain)
 
-        # 5. Build Proto
+        # Build Proto
         bm = backup.backupManga.add()
         bm.source = final_id
         bm.url = final_url
@@ -298,7 +319,7 @@ def kotatsu_to_tachiyomi():
         f.write(backup.SerializeToString())
     
     print(f"✅ MIGRATION COMPLETE.")
-    print(f"🔗 Match Rate: {bridge_matches}/{success_count} sources bridged.")
+    print(f"🔗 Bridges Built: {bridge_matches}/{success_count} entries connected.")
     print(f"📂 Output: {out_path}")
 
 if __name__ == "__main__":
@@ -307,4 +328,4 @@ if __name__ == "__main__":
     else:
         print("❌ Backup.zip not found! Please upload your Kotatsu backup.")
         exit(1)
-        
+    
