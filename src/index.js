@@ -13,7 +13,8 @@ const PROTO_FILE = path.join(__dirname, 'schema.proto');
 
 // --- Live Repos ---
 const KEIYOUSHI_URL = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json';
-const DOKI_REPO_API = 'https://api.github.com/repos/DokiTeam/doki-exts/contents/src/main/kotlin/org/dokiteam/doki/parsers/site';
+// Use Tree API for reliable recursive fetching
+const DOKI_TREE_API = 'https://api.github.com/repos/DokiTeam/doki-exts/git/trees/master?recursive=1';
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
@@ -22,39 +23,21 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 const TACHI_ID_MAP = {}; // ID -> { name, domain }
 const TACHI_DOMAIN_MAP = {}; // domain -> { id, name }
 // Doki Data
-const DOKI_FILES = []; // Array of filenames e.g. "MangaDex.kt"
+const DOKI_CLASSES = []; // Array of class names e.g. "MangaDex" (from MangaDex.kt)
+const DOKI_LOWER_MAP = {}; // lowerName -> realName
 
 const ID_SEED = 1125899906842597n; 
-
-// --- "AI" Levenshtein Implementation (Pure JS) ---
-function levenshtein(a, b) {
-  if (a.length === 0) return b.length; 
-  if (b.length === 0) return a.length; 
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
-  for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-}
 
 // --- Network Helpers ---
 async function fetchJson(url) {
     return new Promise((resolve) => {
-        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge' } };
+        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge-v20' } };
         if (process.env.GH_TOKEN && url.includes('github.com')) opts.headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
         https.get(url, opts, (res) => {
             let data = '';
             res.on('data', c => data += c);
-            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve([]); } });
-        }).on('error', () => resolve([]));
+            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+        }).on('error', () => resolve(null));
     });
 }
 
@@ -71,22 +54,38 @@ async function loadBridgeData() {
                const entry = { id: String(s.id), name: s.name, domain: dom };
                TACHI_ID_MAP[String(s.id)] = entry;
                if(dom) TACHI_DOMAIN_MAP[dom] = entry;
-               // Handle "Tachiyomi: Name"
                if(s.name.startsWith("Tachiyomi: ")) {
                    TACHI_DOMAIN_MAP[s.name.replace("Tachiyomi: ", "").toLowerCase()] = entry;
                }
            });
         });
         console.log(`✅ [Bridge] Loaded ${Object.keys(TACHI_ID_MAP).length} Tachiyomi sources.`);
+    } else {
+        console.warn("⚠️ [Bridge] Failed to load Keiyoushi index.");
     }
 
-    // 2. Fetch Doki File List (Lightweight scan)
-    const dData = await fetchJson(DOKI_REPO_API);
-    if (Array.isArray(dData)) {
-        dData.forEach(f => {
-            if(f.name.endsWith(".kt")) DOKI_FILES.push(f.name.replace(".kt", ""));
+    // 2. Fetch Doki File List via Tree API (Fixes "Indexed 0" issue)
+    const dData = await fetchJson(DOKI_TREE_API);
+    if (dData && Array.isArray(dData.tree)) {
+        dData.tree.forEach(node => {
+            // We look for Kotlin files in the parsers directory
+            if (node.path.endsWith('.kt') && node.path.includes('parsers')) {
+                const filename = path.basename(node.path, '.kt');
+                // Exclude common base classes or utils if needed
+                if (filename !== 'Parser' && filename !== 'SiteParser') {
+                    DOKI_CLASSES.push(filename);
+                    DOKI_LOWER_MAP[filename.toLowerCase()] = filename;
+                }
+            }
         });
-        console.log(`✅ [Bridge] Indexed ${DOKI_FILES.length} Kotatsu parsers.`);
+        console.log(`✅ [Bridge] Indexed ${DOKI_CLASSES.length} Kotatsu parsers from Git Tree.`);
+    } else {
+        console.warn("⚠️ [Bridge] Failed to load Doki Tree. Using Fallbacks.");
+        // Emergency Fallbacks
+        ["MangaDex", "Manganato", "BatoTo", "AsuraScans", "FlameComics"].forEach(f => {
+             DOKI_CLASSES.push(f);
+             DOKI_LOWER_MAP[f.toLowerCase()] = f;
+        });
     }
 }
 
@@ -109,81 +108,93 @@ function getKotatsuId(str) {
     return h;
 }
 
-// --- "AI" Matching Logic ---
+// --- "Smart AI" Token Matcher ---
+// Extracts "Core" tokens: "Asura Scans" -> "asura", "Mangakakalot" -> "mangakakalot"
+function getCoreIdentity(name) {
+    if (!name) return "";
+    return name.toLowerCase()
+        .replace(/\b(scans?|comics?|toon|manga|webtoon|fansub|team|group)\b/g, '') // Remove noise
+        .replace(/[^a-z0-9]/g, '') // Remove symbols
+        .trim();
+}
 
-// K -> T
-function findTachiyomiId(kotatsuName, mangaUrl) {
-    // 1. Domain Match (Strongest)
-    const domain = getDomain(mangaUrl);
+// KOTATSU ➔ TACHIYOMI LOGIC
+function resolveToTachiyomi(kName, kUrl) {
+    // 1. Domain Match (The Gold Standard)
+    const domain = getDomain(kUrl);
     if (domain && TACHI_DOMAIN_MAP[domain]) {
         return TACHI_DOMAIN_MAP[domain].id;
     }
 
-    // 2. Name Match (Exact)
+    // 2. Exact Name Match
     for (const id in TACHI_ID_MAP) {
-        if (TACHI_ID_MAP[id].name.toLowerCase() === kotatsuName.toLowerCase()) return id;
+        if (TACHI_ID_MAP[id].name.toLowerCase() === kName.toLowerCase()) return id;
     }
 
-    // 3. AI Fuzzy Match
-    let bestId = null;
-    let minDist = 999;
-    for (const id in TACHI_ID_MAP) {
-        const dist = levenshtein(kotatsuName.toLowerCase(), TACHI_ID_MAP[id].name.toLowerCase());
-        if (dist < minDist) {
-            minDist = dist;
-            bestId = id;
+    // 3. AI Token Match
+    // e.g. Kotatsu: "Asura Scans", Tachiyomi: "Asura Toon" -> Both core: "asura"
+    const kCore = getCoreIdentity(kName);
+    if (kCore.length > 2) { // Only fuzzy match if core is substantive
+        for (const id in TACHI_ID_MAP) {
+            const tCore = getCoreIdentity(TACHI_ID_MAP[id].name);
+            if (tCore === kCore) {
+                console.log(`🤖 [AI Match] "${kName}" matches "${TACHI_ID_MAP[id].name}"`);
+                return id;
+            }
         }
-    }
-    // Only accept if very close (e.g. diff <= 3 chars)
-    if (bestId && minDist <= 3) {
-        console.log(`🤖 [AI Match] ${kotatsuName} -> ${TACHI_ID_MAP[bestId].name}`);
-        return bestId;
     }
 
     // 4. Fallback Hash
     let hash = 0n;
-    for (let i = 0; i < kotatsuName.length; i++) {
-        hash = (31n * hash + BigInt(kotatsuName.charCodeAt(i))) & 0xFFFFFFFFFFFFFFFFn;
+    for (let i = 0; i < kName.length; i++) {
+        hash = (31n * hash + BigInt(kName.charCodeAt(i))) & 0xFFFFFFFFFFFFFFFFn;
     }
     return hash.toString();
 }
 
-// T -> K
-function findKotatsuKey(tachiId, tachiName, mangaUrl) {
-    // 1. Domain Map to Doki File
-    const domain = getDomain(mangaUrl);
+// TACHIYOMI ➔ KOTATSU LOGIC
+function resolveToKotatsuKey(tId, tName, tUrl) {
+    const domain = getDomain(tUrl);
     
-    // Manual Overrides
-    if (tachiName === "MangaDex") return "MANGADEX";
+    // 1. Hard Overrides
+    if (tName === "MangaDex") return "MANGADEX";
     if (domain === "mangakakalot.com" || domain === "manganato.com") return "MANGANATO";
 
-    // 2. Try to match Domain to Doki Files
-    // e.g. asuratoon.com -> AsuraScans.kt ??
-    // Not perfect, so we rely on heuristic naming.
+    // 2. Domain -> Doki Class Match
+    // If Doki has "MangaDex.kt" and domain is "mangadex.org", we can try to guess
+    // but Doki doesn't give us domains easily without reading files.
+    // So we rely on Name matching mostly.
+
+    // 3. AI Token Match against Doki Classes
+    // e.g. Tachi: "AsuraToon" -> Core: "asura"
+    // Doki: "AsuraScans" -> Core: "asura" -> Match!
+    const tCore = getCoreIdentity(tName);
     
-    // 3. AI Name Match against Doki Files
-    let bestFile = null;
-    let minDist = 999;
-    const target = tachiName.replace(/s+/g, "");
-    
-    for (const f of DOKI_FILES) {
-        const dist = levenshtein(target.toLowerCase(), f.toLowerCase());
-        if (dist < minDist) {
-            minDist = dist;
-            bestFile = f;
+    // Direct lookup first
+    if (DOKI_LOWER_MAP[tName.toLowerCase()]) {
+        return convertClassToConstant(DOKI_LOWER_MAP[tName.toLowerCase()]);
+    }
+
+    // Fuzzy Token lookup
+    if (tCore.length > 2) {
+        for (const cls of DOKI_CLASSES) {
+            const dCore = getCoreIdentity(cls);
+            if (dCore === tCore) {
+                console.log(`🤖 [AI Match] Tachi "${tName}" -> Doki "${cls}"`);
+                return convertClassToConstant(cls);
+            }
         }
     }
 
-    if (bestFile && minDist <= 3) {
-        // Convert PascalCase/File to CONSTANT_CASE
-        // e.g. AsuraScans -> ASURA_SCANS
-        return bestFile.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
-    }
-
-    // 4. Default Fallback
-    return tachiName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, "");
+    // 4. Last Resort: Transform Tachi Name directly
+    return convertClassToConstant(tName);
 }
 
+function convertClassToConstant(className) {
+    // CamelCase -> CONSTANT_CASE
+    // AsuraScans -> ASURA_SCANS
+    return className.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+}
 
 // --- JSON BigInt Serializer ---
 function stringifyWithBigInt(obj) {
@@ -200,7 +211,7 @@ const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) 
 // --- MAIN ---
 
 async function main() {
-    console.log('📦 Initializing Migration Kit (v19.0 Hybrid Bridge)...');
+    console.log('📦 Initializing Migration Kit (v20.0 True Bridge)...');
     await loadBridgeData();
 
     console.log('📖 Loading Protobuf Schema...');
@@ -225,6 +236,7 @@ async function kotatsuToTachiyomi(BackupMessage) {
 
     zip.getEntries().forEach(e => {
         const n = e.name;
+        // Handle both strict (v19) and legacy formats
         if(n === 'favourites' || n === 'favourites.json') favouritesData = JSON.parse(e.getData().toString('utf8'));
         if(n === 'categories' || n === 'categories.json') categoriesData = JSON.parse(e.getData().toString('utf8'));
         if(n === 'history' || n === 'history.json') historyData = JSON.parse(e.getData().toString('utf8'));
@@ -250,7 +262,7 @@ async function kotatsuToTachiyomi(BackupMessage) {
         if(!kManga) return;
 
         // --- BRIDGE CALL ---
-        const tSourceId = findTachiyomiId(kManga.source, kManga.url || kManga.public_url);
+        const tSourceId = resolveToTachiyomi(kManga.source, kManga.url || kManga.public_url);
         // -------------------
 
         if (!sourceSet.has(tSourceId)) {
@@ -320,7 +332,7 @@ async function tachiyomiToKotatsu(BackupMessage) {
         const tName = getSrcInfo(tm.source);
         
         // --- BRIDGE CALL ---
-        const kSourceKey = findKotatsuKey(String(tm.source), tName, tm.url);
+        const kSourceKey = resolveToKotatsuKey(String(tm.source), tName, tm.url);
         // -------------------
 
         // Clean URL
@@ -334,7 +346,7 @@ async function tachiyomiToKotatsu(BackupMessage) {
             id: kId, // BigInt
             title: cleanStr(tm.title),
             url: kUrl,
-            public_url: null, // Let Kotatsu resolve
+            public_url: null, 
             source: kSourceKey,
             state: tm.status === 2 ? "FINISHED" : "ONGOING",
             cover_url: cleanStr(tm.thumbnailUrl),
@@ -358,7 +370,6 @@ async function tachiyomiToKotatsu(BackupMessage) {
              let latest = null;
              tm.chapters.forEach(ch => { if(ch.read && (!latest || ch.chapterNumber > latest.chapterNumber)) latest = ch; });
              if (latest) {
-                 // Chapter ID Hash: Source + URL
                  const chId = getKotatsuId(kSourceKey + latest.url);
                  history.push({
                      manga_id: kId,
@@ -394,4 +405,4 @@ async function tachiyomiToKotatsu(BackupMessage) {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
-                   
+                              
