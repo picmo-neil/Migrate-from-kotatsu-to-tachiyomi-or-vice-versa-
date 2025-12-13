@@ -13,7 +13,6 @@ const PROTO_FILE = path.join(__dirname, 'schema.proto');
 
 // --- Live Repos ---
 const KEIYOUSHI_URL = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json';
-// Using 'base' branch and strict path filter
 const DOKI_TREE_API = 'https://api.github.com/repos/DokiTeam/doki-exts/git/trees/base?recursive=1';
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
@@ -21,8 +20,8 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 // --- Brain 🧠: Global Maps ---
 const TACHI_ID_MAP = {}; // ID (string) -> { name, domain }
 const TACHI_DOMAIN_MAP = {}; // domain -> { id (string), name }
-const DOKI_CLASSES = []; // "MangaDex", "AsuraScans"
-const DOKI_LOWER_MAP = {}; // "mangadex" -> "MangaDex"
+const DOKI_CLASSES = []; 
+const DOKI_LOWER_MAP = {}; 
 
 const ID_SEED = 1125899906842597n; 
 
@@ -36,11 +35,20 @@ const KOTATSU_OVERRIDES = {
     "MANGAKAKALOT": "MANGAKAKALOT"
 };
 
+// --- Helper: Signed 64-bit Normalizer 💎 ---
+// Ensures that 18446744073709551615 becomes "-1" so Java/Protobuf match perfectly.
+function toSigned64(val) {
+    try {
+        return BigInt.asIntN(64, BigInt(val)).toString();
+    } catch (e) {
+        return "0";
+    }
+}
+
 // --- Network Helpers ---
 async function fetchJson(url, isKeiyoushi = false) {
     return new Promise((resolve) => {
-        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge-v24' } };
-        // Correctly escaped template literal for GH Token
+        const opts = { headers: { 'User-Agent': 'NodeJS-Bridge-v25' } };
         if (process.env.GH_TOKEN && url.includes('github.com')) opts.headers['Authorization'] = `Bearer ${process.env.GH_TOKEN}`;
         https.get(url, opts, (res) => {
             let data = '';
@@ -48,8 +56,7 @@ async function fetchJson(url, isKeiyoushi = false) {
             res.on('end', () => { 
                 try { 
                     if (isKeiyoushi) {
-                        // 💎 V24: JSON BigInt Patcher
-                        // Prevents ID corruption: "id": 123 -> "id": "123"
+                        // Patch JSON IDs to strings
                         const patchedData = data.replace(/"id":\s*([0-9]{15,})/g, '"id": "$1"');
                         resolve(JSON.parse(patchedData));
                     } else {
@@ -71,8 +78,10 @@ async function loadBridgeData() {
         kData.forEach(ext => {
            if(ext.sources) ext.sources.forEach(s => {
                const dom = getDomain(s.baseUrl);
-               const entry = { id: String(s.id), name: s.name, domain: dom };
-               TACHI_ID_MAP[String(s.id)] = entry;
+               // Normalize to Signed 64-bit immediately
+               const signedId = toSigned64(s.id); 
+               const entry = { id: signedId, name: s.name, domain: dom };
+               TACHI_ID_MAP[signedId] = entry;
                if(dom) TACHI_DOMAIN_MAP[dom] = entry;
                if(s.name.startsWith("Tachiyomi: ")) {
                    TACHI_DOMAIN_MAP[s.name.replace("Tachiyomi: ", "").toLowerCase()] = entry;
@@ -108,7 +117,6 @@ function getDomain(url) {
         if(!url) return null;
         let u = url;
         if(!u.startsWith('http')) u = 'https://' + u;
-        // Aggressive domain cleaning: removes www, m, v*, and trailing dots
         return new URL(u).hostname
             .replace(/^www\./, '')
             .replace(/^m\./, '')
@@ -123,7 +131,7 @@ function getKotatsuId(str) {
         h = (31n * h + BigInt(str.charCodeAt(i)));
         h = BigInt.asIntN(64, h); 
     }
-    return h;
+    return h.toString();
 }
 
 function getCoreIdentity(name) {
@@ -139,9 +147,7 @@ function resolveToTachiyomi(kName, kUrl) {
     // 1. Strict Domain Match
     const domain = getDomain(kUrl);
     if (domain && TACHI_DOMAIN_MAP[domain]) {
-        // We found an exact domain match.
-        // We return this ID so we can strictly RENAME the source later.
-        return TACHI_DOMAIN_MAP[domain].id;
+        return TACHI_DOMAIN_MAP[domain].id; // Already signed
     }
 
     // 2. Exact Name Match
@@ -161,12 +167,12 @@ function resolveToTachiyomi(kName, kUrl) {
         }
     }
 
-    // Fallback Hash
+    // Fallback Hash (Must be Signed 64-bit)
     let hash = 0n;
     for (let i = 0; i < kName.length; i++) {
         hash = (31n * hash + BigInt(kName.charCodeAt(i))) & 0xFFFFFFFFFFFFFFFFn;
     }
-    return hash.toString();
+    return BigInt.asIntN(64, hash).toString();
 }
 
 // TACHIYOMI ➔ KOTATSU
@@ -213,7 +219,7 @@ const cleanStr = (s) => (s && (typeof s === 'string' || typeof s === 'number')) 
 // --- MAIN ---
 
 async function main() {
-    console.log('📦 Initializing Migration Kit (v24.0 Precision + Rename)...');
+    console.log('📦 Initializing Migration Kit (v25.0 Precision + Signed Norm)...');
     await loadBridgeData();
 
     console.log('📖 Loading Protobuf Schema...');
@@ -249,24 +255,24 @@ async function kotatsuToTachiyomi(BackupMessage) {
         const kManga = fav.manga;
         if(!kManga) return;
 
-        // 1. Resolve ID (String)
-        const tSourceId = resolveToTachiyomi(kManga.source, kManga.url || kManga.public_url);
-        
-        // 2. Strict Renaming Logic
-        // If we found a valid ID in our map, we MUST use the official name associated with that ID.
-        // This ensures Tachiyomi recognizes the source even if the extension isn't installed.
+        // 1. Resolve ID (Returns a Signed 64-bit String)
+        const rawId = resolveToTachiyomi(kManga.source, kManga.url || kManga.public_url);
+        const tSourceId = toSigned64(rawId); // DOUBLE CHECK Normalization
+
+        // 2. Strict Renaming
         let sName = kManga.source;
         if (TACHI_ID_MAP[tSourceId]) {
-            sName = TACHI_ID_MAP[tSourceId].name; // <--- The Fix: Use Official Name
+            sName = TACHI_ID_MAP[tSourceId].name; // Use Official Name
         }
 
         if (!sourceSet.has(tSourceId)) {
             sourceSet.add(tSourceId);
+            // Ensure ID passed to backupSources is exactly the same string as passed to backupManga
             backupSources.push({ sourceId: tSourceId, name: sName });
         }
 
         backupManga.push({
-            source: tSourceId,
+            source: tSourceId, 
             url: cleanStr(kManga.url),
             title: cleanStr(kManga.title),
             artist: cleanStr(kManga.artist),
@@ -298,10 +304,11 @@ async function tachiyomiToKotatsu(BackupMessage) {
     const tachiData = BackupMessage.toObject(message, { defaults: true, longs: String });
 
     const favorites = [];
-    const history = [];
-
+    
     const getSrcInfo = (id) => {
-        const s = (tachiData.backupSources || []).find(x => String(x.sourceId) === String(id));
+        // ID lookup must also respect signed normalization
+        const lookupId = toSigned64(id);
+        const s = (tachiData.backupSources || []).find(x => toSigned64(x.sourceId) === lookupId);
         return s ? s.name : ("Source " + id);
     };
 
@@ -348,4 +355,4 @@ async function tachiyomiToKotatsu(BackupMessage) {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
-                  
+                              
