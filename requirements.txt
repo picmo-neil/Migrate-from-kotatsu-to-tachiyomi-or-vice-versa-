@@ -1,1 +1,2 @@
 protobuf==4.25.3
+requests==2.31.0
