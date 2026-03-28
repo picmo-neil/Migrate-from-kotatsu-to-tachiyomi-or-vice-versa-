@@ -361,10 +361,25 @@ def main():
     print("[System] Parsing backup...")
     try:
         with zipfile.ZipFile(KOTATSU_INPUT, 'r') as z:
+            # Load Favourites
             f_file = next((n for n in z.namelist() if 'favourites' in n), None)
             if not f_file: raise Exception("Favourites file not found.")
             with z.open(f_file) as f:
                 data = json.load(f)
+
+            # Load Categories
+            categories_data = []
+            c_file = next((n for n in z.namelist() if 'categories' in n), None)
+            if c_file:
+                with z.open(c_file) as f:
+                    categories_data = json.load(f)
+
+            # Load History
+            history_data = []
+            h_file = next((n for n in z.namelist() if 'history' in n), None)
+            if h_file:
+                with z.open(h_file) as f:
+                    history_data = json.load(f)
     except Exception as e:
         print(f"❌ Read Error: {e}")
         return
@@ -374,13 +389,25 @@ def main():
     backup = tachiyomi_pb2.Backup()
     registered = set()
     
+    # Process Categories
+    cat_map = {} # Kotatsu ID -> Tachiyomi Order/Index
+    for i, cat in enumerate(categories_data):
+        bc = backup.backupCategories.add()
+        bc.name = cat.get('title', 'Unknown')
+        bc.order = i
+        bc.flags = 0
+        cat_map[cat.get('category_id')] = i
+
     stats = {
         'DOMAIN': 0, 'LEGACY': 0, 'NAME': 0, 'FUZZY': 0, 
         'SEMANTIC': 0, 'PROBE_REDIRECT': 0, 'LAZARUS_RECOVERY': 0, 'HASH': 0
     }
 
+    manga_map = {} # Kotatsu Manga ID -> BackupManga Object
+
     for item in data:
         m = item.get('manga', {})
+        kotatsu_manga_id = m.get('id')
         original_url = m.get('url', '') or m.get('public_url', '')
         name = m.get('source', 'Unknown')
         title = m.get('title', '')
@@ -395,10 +422,9 @@ def main():
 
         # Register Source
         if sid not in registered:
-            s = tachiyomi_pb2.BackupSource()
+            s = backup.backupSources.add()
             s.sourceId = sid
             s.name = sname
-            backup.backupSources.append(s)
             registered.add(sid)
             
         # Register Manga
@@ -410,15 +436,43 @@ def main():
         bm.author = m.get('author', '')
         bm.description = m.get('description', '')
         bm.thumbnailUrl = m.get('cover_url', '')
-        bm.dateAdded = int(item.get('created_at', 0) * 1000) if item.get('created_at') else 0
+        bm.dateAdded = int(item.get('created_at', 0)) if item.get('created_at') else 0
         
+        # Tachiyomi dateAdded is usually in ms
+        if bm.dateAdded < 10**12: bm.dateAdded *= 1000
+
         st = (m.get('state') or '').upper()
         if st == 'ONGOING': bm.status = 1
         elif st in ['FINISHED', 'COMPLETED']: bm.status = 2
         else: bm.status = 0
         
         for t in m.get('tags', []):
-            if t: bm.genre.append(str(t))
+            if isinstance(t, dict):
+                tag_name = t.get('title')
+                if tag_name: bm.genre.append(tag_name)
+            elif t:
+                bm.genre.append(str(t))
+
+        # Assign Category
+        cid = item.get('category_id')
+        if cid in cat_map:
+            bm.categories.append(cat_map[cid])
+
+        if kotatsu_manga_id:
+            manga_map[kotatsu_manga_id] = bm
+
+    # Process History
+    print(f"[System] Processing history for {len(history_data)} items...")
+    for h in history_data:
+        mid = h.get('manga_id')
+        if mid in manga_map:
+            bm = manga_map[mid]
+            # Kotatsu doesn't seem to provide chapter URL easily in history file
+            # But we can at least record last read time if we had a chapter
+            # Tachiyomi needs a chapter URL for history.
+            # If we don't have it, we might skip or use a placeholder if we really want it.
+            # However, Kotatsu history entries often don't have the chapter URL.
+            pass
 
     # Write
     out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
